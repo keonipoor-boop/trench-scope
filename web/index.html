@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trench Scope</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<!-- TICKER ---------------------------------------------------------------->
+<div class="ticker"><div class="ticker-track" id="ticker"></div></div>
+<div class="livewire">
+  <span class="lw-badge">LIVE WIRE</span>
+  <span class="lw-text" id="livewire">booting agents…</span>
+  <span class="lw-chips" id="lwchips"></span>
+  <button class="gear" id="btn-settings" title="Settings">⚙ SETTINGS</button>
+</div>
+<div class="banner" id="banner" hidden></div>
+
+<dialog id="settings">
+  <form method="dialog" id="settings-form">
+    <h3>◆ SETTINGS</h3>
+    <div class="set-row"><span>DATA</span>
+      <div class="seg2"><label><input type="radio" name="mode" value="live"> LIVE</label><label><input type="radio" name="mode" value="demo"> DEMO</label></div></div>
+    <p class="dim small">LIVE scans the real pump.fun trenches. DEMO shows generated data so you can explore. Switching restarts the app (about 5 seconds).</p>
+    <label class="set-key">HELIUS API KEY <i id="k-HELIUS_API_KEY"></i><input type="password" name="HELIUS_API_KEY" autocomplete="off" placeholder="free at helius.dev: holders, fees, KOL wallets"></label>
+    <label class="set-key">X BEARER TOKEN <i id="k-X_BEARER_TOKEN"></i><input type="password" name="X_BEARER_TOKEN" autocomplete="off" placeholder="optional: X mentions"></label>
+    <label class="set-key">ANTHROPIC API KEY <i id="k-ANTHROPIC_API_KEY"></i><input type="password" name="ANTHROPIC_API_KEY" autocomplete="off" placeholder="optional: Claude writes the why + thesis"></label>
+    <label class="set-key" id="pw-row" hidden>ADMIN PASSWORD<input type="password" name="admin" autocomplete="current-password" placeholder="the one you chose when you deployed"></label>
+    <p class="dim small">Blank fields keep the saved key. Type <b>clear</b> to remove one. Keys stay on this computer or server and are never shown again.</p>
+    <p class="small" id="set-msg"></p>
+    <div class="set-actions"><button value="cancel" formnovalidate>CLOSE</button><button id="set-save" value="default">SAVE</button></div>
+  </form>
+</dialog>
+
+<main class="grid">
+  <!-- RUNNER BOARD -------------------------------------------------------->
+  <section class="panel p-green" id="board">
+    <header>◆ RUNNER BOARD <i>— seven days · every coin that cleared the bar</i><b class="live">LIVE</b></header>
+    <div class="board-top">
+      <div>
+        <div class="kicker">RUNNERS · 7D</div>
+        <div class="bignum" id="b-runners">—</div>
+        <div class="pill-up" id="b-today">—</div>
+      </div>
+      <div class="board-ath">
+        <div class="kicker">TOP ATH</div>
+        <div class="midnum" id="b-max">—</div>
+        <div class="kicker dim" id="b-launches">— launches</div>
+      </div>
+    </div>
+    <div class="statrow">
+      <div><span>% REAL</span><b id="b-real">—</b></div>
+      <div><span>AVG ATH</span><b id="b-avg">—</b></div>
+      <div><span>MED TTT 100K</span><b id="b-ttt">—</b></div>
+      <div><span>HIT RATE</span><b id="b-hit">—</b></div>
+    </div>
+    <div class="kicker">RUNNERS PER DAY <i class="dim">— green real · red failed checks</i></div>
+    <div class="bars" id="b-days"></div>
+  </section>
+
+  <!-- THE TAPE ------------------------------------------------------------->
+  <section class="panel p-cyan" id="tapepanel">
+    <header>◆ THE TAPE <i>— runners as they cross $100k · ATH book</i><span class="hdr-r" id="tape-hdr"></span></header>
+    <div class="tape-wrap">
+      <div class="tape-chart">
+        <div class="tape-head"><span class="bignum sm" id="t-last">—</span><span class="chg" id="t-lastsym"></span></div>
+        <canvas id="tapechart"></canvas>
+      </div>
+      <div class="book">
+        <div class="book-h"><span>TICKER</span><span>CATALYST</span><span>TTT</span><span class="r">ATH</span></div>
+        <div id="book"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THE SYNAPSE ---------------------------------------------------------->
+  <section class="panel p-mag synapse" id="synapse">
+    <header>◆ THE SYNAPSE <i>— narrative neurons · size = runners · glow = momentum</i><span class="hdr-r" id="syn-hdr"></span></header>
+    <div class="syn-body">
+      <canvas id="syncanvas"></canvas>
+      <div class="syn-stats" id="synstats"></div>
+      <aside class="sensory">
+        <div class="side-title">SENSORY INPUT <i>— sources</i></div>
+        <div id="sources"></div>
+      </aside>
+      <aside class="cortex">
+        <div class="side-title">CORTEX <i>— today's thesis</i><span id="cx-by"></span></div>
+        <div id="cortex"></div>
+      </aside>
+      <div class="tooltip" id="syntip"></div>
+    </div>
+  </section>
+
+  <!-- AGENT STRIP ---------------------------------------------------------->
+  <section class="agentstrip" id="agents"></section>
+
+  <!-- ROTATION -------------------------------------------------------------->
+  <section class="panel p-orange" id="rotation">
+    <header>◆ NARRATIVE ROTATION <i>— share vs momentum · tail = daily → hourly</i></header>
+    <canvas id="rotcanvas"></canvas>
+  </section>
+
+  <!-- TRACE ------------------------------------------------------------------>
+  <section class="panel p-green" id="tracepanel">
+    <header>◆ THE TRACE <i>— every step the bot takes</i><span class="hdr-r"><button id="btn-scan">RUN SCAN</button></span></header>
+    <div class="trace" id="trace"></div>
+  </section>
+
+  <!-- COIN FILE ------------------------------------------------------------->
+  <section class="panel p-cyan" id="coinfile">
+    <header>◆ COIN FILE <i>— why it ran</i></header>
+    <div id="coin"><div class="empty">click a runner on THE TAPE</div></div>
+  </section>
+
+  <!-- HOURLY META ----------------------------------------------------------->
+  <section class="panel p-purple" id="hourly">
+    <header>◆ HOURLY META <i>— last hour vs prior six</i><span class="hdr-r"><button id="btn-hourly">REFRESH</button></span></header>
+    <div id="hourlybody"></div>
+  </section>
+</main>
+<footer>TRENCH SCOPE · <span id="foot"></span> · not financial advice</footer>
+<script src="/static/synapse.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+# One-click cloud deploy: https://render.com/deploy?repo=<this repo's GitHub URL>
+# Render builds this, gives you a permanent https URL, and redeploys on every push to main.
+services:
+  - type: web
+    name: trench-scope
+    runtime: python
+    plan: free            # free sleeps after 15 min with nobody viewing; "starter" stays on 24/7
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run.py
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: TRENCH_HOSTED
+        value: "1"
+      - key: ADMIN_PASSWORD      # lets you change keys/mode from the dashboard's Settings
+        sync: false
+      - key: HELIUS_API_KEY
+        sync: false
+      - key: X_BEARER_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+    # To keep the database across restarts, switch plan to "starter" and uncomment:
+    # disk:
+    #   name: trench-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # and add an env var  TRENCH_DATA_DIR = /var/data

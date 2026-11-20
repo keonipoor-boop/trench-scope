@@ -1,0 +1,87 @@
+{
+  "_comment": "All tunables live here. Put personal overrides in config.local.json (deep-merged on top).",
+  "db_path": "data/trench.db",
+  "demo_db_path": "data/trench_demo.db",
+  "timezone_daily_hour": 8,
+
+  "pipeline": {
+    "lookback_days": 7,
+    "runner_ath_usd": 100000,
+    "ath_prefilter_usd": 40000,
+    "cheap_refresh_min": 10,
+    "ohlcv_refresh_min": 60,
+    "deep_refresh_min": 30,
+    "max_cheap_per_scan": 1500,
+    "max_ohlcv_per_scan": 60,
+    "max_deep_per_scan": 40,
+    "total_supply": 1000000000
+  },
+
+  "scheduler": {
+    "scan_every_min": 10,
+    "hourly_at_minute": 0,
+    "daily_at_hour": 8
+  },
+
+  "signals": {
+    "holders":   {"enabled": true, "required": true,  "min": 300},
+    "top10":     {"enabled": true, "required": true,  "max_pct": 35},
+    "fees":      {"enabled": true, "required": true,  "min_sol_per_100k_ath": 2.0, "min_fee_volume_pct": 0.25},
+    "kols":      {"enabled": true, "required": false, "min": 1},
+    "traders":   {"enabled": true, "required": true,  "min": 150}
+  },
+
+  "catalysts": {
+    "kol_call_window_min": 60,
+    "big_account_followers": 100000
+  },
+
+  "narratives": {
+    "emerging_min_count": 2,
+    "emerging_top_n": 10,
+    "min_word_len": 3
+  },
+
+  "thesis": {
+    "daily_window_h": 24,
+    "daily_baseline_h": 72,
+    "hourly_window_h": 1,
+    "hourly_baseline_h": 6,
+    "meta_shift_momentum": 2.0,
+    "meta_shift_min_runners": 2,
+    "avoid_min_launches": 15,
+    "avoid_hit_rate_ratio": 0.5,
+    "look_for_n": 4
+  },
+
+  "llm": {
+    "model": "claude-opus-5-5",
+    "effort": "low",
+    "max_tokens": 2000,
+    "why_bullets": true,
+    "thesis_prose": true
+  },
+
+  "sources": {
+    "pumpfun": {
+      "enabled": true,
+      "base_urls": ["https://frontend-api-v3.pump.fun", "https://frontend-api-v2.pump.fun", "https://frontend-api.pump.fun"],
+      "list_paths": [
+        "/coins?offset={offset}&limit={limit}&sort={sort}&order=DESC&includeNsfw=true&complete={complete}",
+        "/coins/for-you?offset={offset}&limit={limit}&includeNsfw=true"
+      ],
+      "detail_paths": ["/coins/{mint}", "/coins-v2/{mint}"],
+      "sorts": ["created_timestamp", "market_cap", "last_trade_timestamp"],
+      "page_limit": 50,
+      "max_pages": 20,
+      "rate_per_min": 60
+    },
+    "dexscreener": {"enabled": true, "base_url": "https://api.dexscreener.com", "batch": 30, "rate_per_min": 250},
+    "geckoterminal": {"enabled": true, "base_url": "https://api.geckoterminal.com/api/v2", "timeframe": "hour", "aggregate": 1, "limit": 200, "rate_per_min": 28},
+    "helius_holders": {"enabled": true, "max_pages": 10, "rate_per_min": 120, "exclude_owners": []},
+    "helius_txs": {"enabled": true, "sample_size": 100, "rate_per_min": 120},
+    "kols": {"enabled": true, "tx_limit": 100, "rate_per_min": 120},
+    "twitter": {"enabled": true, "base_url": "https://api.x.com/2", "max_results": 50, "rate_per_min": 30},
+    "demo": {"enabled": false, "launches_per_10min": 10, "seed": 1337, "scan_every_min": 1}
+  }
+}

@@ -1,0 +1,62 @@
+# Every push to main builds the desktop app for Windows, macOS and Linux and publishes it
+# as the "latest" GitHub Release. The app checks that release and shows "Update available".
+name: desktop-app
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      APP_VERSION: v1.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyinstaller
+      - run: python build_desktop.py
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/TrenchScope.exe -DestinationPath TrenchScope-Windows.zip
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent dist/TrenchScope.app TrenchScope-macOS.zip
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: tar -czf TrenchScope-Linux.tar.gz -C dist TrenchScope
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ runner.os }}
+          path: TrenchScope-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.${{ github.run_number }}
+          name: Trench Scope v1.${{ github.run_number }}
+          make_latest: "true"
+          files: out/*
+          body: |
+            **Download for your computer, unzip, double-click.** Your browser opens the dashboard.
+            - Windows: `TrenchScope-Windows.zip` → `TrenchScope.exe` (if SmartScreen warns: More info → Run anyway)
+            - macOS: `TrenchScope-macOS.zip` → `TrenchScope.app` (first time: right-click → Open)
+            - Linux: `TrenchScope-Linux.tar.gz` → `./TrenchScope`
+            Your keys and data live in your user folder, so installing a new version keeps them.

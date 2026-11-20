@@ -1,0 +1,12 @@
+{
+  "AI / agents":      ["ai", "agent", "agents", "gpt", "llm", "neural", "bot", "claude", "grok", "sentient", "agi", "terminal", "swarm", "autonomous"],
+  "Political":        ["trump", "maga", "biden", "kamala", "vance", "election", "president", "senate", "congress", "doge", "tariff", "usa", "america"],
+  "Elon / celebrity": ["elon", "musk", "kanye", "ye", "drake", "taylor", "swift", "mrbeast", "celebrity", "tate", "rogan", "saylor"],
+  "Animals":          ["dog", "cat", "frog", "pepe", "inu", "shiba", "doge", "penguin", "hippo", "monkey", "ape", "bear", "bull", "goat", "duck", "fish", "capybara", "pnut", "squirrel"],
+  "Tech / utility":   ["app", "protocol", "github", "tool", "launchpad", "bridge", "dex", "sdk", "api", "infra", "zk", "privacy", "depin", "compute"],
+  "CTO":              ["cto", "community takeover", "takeover", "revival", "revive", "reborn"],
+  "Brainrot":         ["skibidi", "rizz", "sigma", "gyatt", "ohio", "mewing", "fanum", "brainrot", "npc", "aura", "chill guy", "goon"],
+  "Asia meta":        ["chinese", "china", "japan", "korea", "cz", "binance", "bnb", "lucky", "dragon", "panda", "hanzi", "meme coin china", "wen", "dao"],
+  "Culture / memes":  ["wojak", "chad", "based", "gm", "wagmi", "ngmi", "moon", "lfg", "ponzi", "retard", "fart", "butt", "cult"],
+  "Sports / events":  ["nba", "nfl", "superbowl", "world cup", "olympics", "f1", "ufc", "boxing", "football", "soccer"]
+}

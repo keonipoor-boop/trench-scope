@@ -1,0 +1,8 @@
+.git
+.env
+data/*.db*
+data/settings.json
+__pycache__
+docs
+dist
+build
