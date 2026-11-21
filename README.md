@@ -8,7 +8,7 @@ terminal" dashboard.
 
 **Option A: your own web link (always live, auto-updates)**
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/OWNER/REPO)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/keonipoor-boop/trench-scope)
 
 1. Click the button and sign in to Render with GitHub.
 2. Choose an `ADMIN_PASSWORD`. Paste any keys you have now, or add them later in the app's ⚙ Settings.
