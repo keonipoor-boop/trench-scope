@@ -29,13 +29,19 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist/TrenchScope.exe -DestinationPath TrenchScope-Windows.zip
+        run: |
+          Rename-Item dist/TrenchScope.exe "TrenchScope-$env:APP_VERSION.exe"
+          Compress-Archive -Path "dist/TrenchScope-$env:APP_VERSION.exe" -DestinationPath "TrenchScope-$env:APP_VERSION-Windows.zip"
       - name: Package (macOS)
         if: runner.os == 'macOS'
-        run: ditto -c -k --keepParent dist/TrenchScope.app TrenchScope-macOS.zip
+        run: |
+          mv dist/TrenchScope.app "dist/TrenchScope-$APP_VERSION.app"
+          ditto -c -k --keepParent "dist/TrenchScope-$APP_VERSION.app" "TrenchScope-$APP_VERSION-macOS.zip"
       - name: Package (Linux)
         if: runner.os == 'Linux'
-        run: tar -czf TrenchScope-Linux.tar.gz -C dist TrenchScope
+        run: |
+          mv dist/TrenchScope "dist/TrenchScope-$APP_VERSION"
+          tar -czf "TrenchScope-$APP_VERSION-Linux.tar.gz" -C dist "TrenchScope-$APP_VERSION"
       - uses: actions/upload-artifact@v4
         with:
           name: app-${{ runner.os }}
@@ -57,7 +63,8 @@ jobs:
           files: out/*
           body: |
             **Download for your computer, unzip, double-click.** Your browser opens the dashboard.
-            - Windows: `TrenchScope-Windows.zip` → `TrenchScope.exe` (if SmartScreen warns: More info → Run anyway)
-            - macOS: `TrenchScope-macOS.zip` → `TrenchScope.app` (first time: right-click → Open)
-            - Linux: `TrenchScope-Linux.tar.gz` → `./TrenchScope`
+            - Windows: `TrenchScope-v1.${{ github.run_number }}-Windows.zip` → `TrenchScope-v1.${{ github.run_number }}.exe` (if SmartScreen warns: More info → Run anyway)
+            - macOS: `…-macOS.zip` → the `.app` (first time: right-click → Open)
+            - Linux: `…-Linux.tar.gz`
+            Opening a new version automatically closes an older one that is still running.
             Your keys and data live in your user folder, so installing a new version keeps them.

@@ -22,7 +22,7 @@ on the free plan are lost when the app restarts, so put permanent keys in Render
 **Option B: a desktop app (runs on your computer, live data)**
 
 Open the repo's **Releases** page and download the latest build for your system:
-`TrenchScope-Windows.zip`, `TrenchScope-macOS.zip` or `TrenchScope-Linux.tar.gz`.
+`TrenchScope-vX.Y-Windows.zip`, `…-macOS.zip` or `…-Linux.tar.gz` (the version is in the file name).
 Unzip it and double-click it. Your browser opens the dashboard.
 - Windows: if SmartScreen warns you, click More info, then Run anyway.
 - macOS: the first time, right-click the app and choose Open.
