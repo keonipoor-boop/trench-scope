@@ -5,14 +5,25 @@ from sources.base import Source
 
 
 def _best_pairs(pairs: list[dict]) -> dict[str, dict]:
+    """Most liquid pair per mint, annotated with the earliest pair time (= launch for pump coins)
+    and whether any pair is a graduated pool."""
     best: dict[str, dict] = {}
+    first: dict[str, int] = {}
+    grad: dict[str, bool] = {}
     for p in pairs or []:
         mint = (p.get("baseToken") or {}).get("address")
         if not mint:
             continue
+        if p.get("pairCreatedAt"):
+            first[mint] = min(first.get(mint, 10**15), int(p["pairCreatedAt"]))
+        if p.get("dexId") and p["dexId"] != "pumpfun":
+            grad[mint] = True
         liq = (p.get("liquidity") or {}).get("usd") or 0
         if mint not in best or liq > ((best[mint].get("liquidity") or {}).get("usd") or 0):
             best[mint] = p
+    for m, p in best.items():
+        p["_first_ts"] = first.get(m)
+        p["_graduated"] = grad.get(m, False)
     return best
 
 
@@ -33,6 +44,10 @@ def pair_to_fields(p: dict) -> dict:
         "price_change_24h": (p.get("priceChange") or {}).get("h24"),
         "dex_url": p.get("url"),
         "image": info.get("imageUrl"),
+        "symbol": (p.get("baseToken") or {}).get("symbol"),
+        "name": (p.get("baseToken") or {}).get("name"),
+        "created_ts": int(p["_first_ts"] / 1000) if p.get("_first_ts") else None,
+        "complete": True if p.get("_graduated") else None,
     }
     if socials.get("twitter"):
         out["twitter_dex"] = socials["twitter"]

@@ -31,6 +31,9 @@ class Scheduler:
         log("SCOUT", f"scheduler up: scan every {every // 60}m, hourly at :{sc.get('hourly_at_minute', 0):02d}, "
                      f"daily at {sc.get('daily_at_hour', 8):02d}:00 local")
         last_scan = (db.kv_get("last_scan") or {}).get("ts", 0)
+        if not cfg.demo and cfg.get_path("sources.pumpportal.enabled", True):
+            from sources import pumpportal  # live launch/migration feed runs between scans
+            pumpportal.start(cfg.get_path("sources.pumpportal.url", "wss://pumpportal.fun/api/data"))
         while not self.stop.is_set():
             now = time.time()
             dt = datetime.now()

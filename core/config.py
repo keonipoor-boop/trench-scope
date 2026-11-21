@@ -114,7 +114,7 @@ def load_config(mode: str | None = None, reload: bool = False) -> Config:
     cfg["mode"] = mode or os.getenv("TRENCH_MODE") or load_settings().get("mode") or cfg.get("mode") or "live"
     if cfg["mode"] == "demo":  # fake data is free: no caps, scan every minute
         cfg["scheduler"]["scan_every_min"] = cfg["sources"]["demo"].get("scan_every_min", 1)
-        cfg["pipeline"].update(max_cheap_per_scan=100_000, max_deep_per_scan=2_000)
+        cfg["pipeline"].update(max_cheap_per_scan=100_000, max_deep_per_scan=2_000, cheap_scope="all")
     _CFG = Config(cfg)
     return _CFG
 

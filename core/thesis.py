@@ -27,7 +27,7 @@ def compute(window_h: float, baseline_h: float, now: float | None = None, coins:
     now = now or time.time()
     start, base_start = now - window_h * 3600, now - (window_h + baseline_h) * 3600
     if coins is None:
-        coins = get_db().coins("created_ts >= ?", (int(base_start - 86400),), order="created_ts")
+        coins = get_db().light_coins(int(base_start - 86400))
 
     launches_now = [c for c in coins if start <= (c.get("created_ts") or 0) <= now]
     launches_base = [c for c in coins if base_start <= (c.get("created_ts") or 0) < start]

@@ -96,6 +96,23 @@ class DB:
         c["is_real"] = None if r["is_real"] is None else bool(r["is_real"])
         return c
 
+    def light_coins(self, since: int) -> list[dict]:
+        """Columns only (fast). Runners also get their description for emerging-word detection."""
+        rows = self.q("""SELECT mint, name, symbol, created_ts, ath_mcap, ts_100k, is_runner, is_real,
+                         primary_catalyst, themes,
+                         CASE WHEN is_runner=1 THEN json_extract(data,'$.description') END AS description,
+                         CASE WHEN is_runner=1 THEN json_extract(data,'$.time_to_100k_min') END AS ttt
+                         FROM coins WHERE created_ts >= ?""", (since,))
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["themes"] = json.loads(d["themes"] or "[]")
+            d["is_runner"] = bool(d["is_runner"])
+            d["is_real"] = None if d["is_real"] is None else bool(d["is_real"])
+            d["time_to_100k_min"] = d.pop("ttt")
+            out.append(d)
+        return out
+
     def get_coin(self, mint: str) -> dict | None:
         rows = self.q("SELECT * FROM coins WHERE mint=?", (mint,))
         return self.row_to_coin(rows[0]) if rows else None
@@ -123,6 +140,9 @@ class DB:
                     continue
                 c[k] = v
             c["ath_mcap"] = max(float(c.get("ath_mcap") or 0), float((existing or {}).get("ath_mcap") or 0))
+            olds = [x for x in ((existing or {}).get("created_ts"), coin.get("created_ts")) if x]
+            if olds:
+                c["created_ts"] = min(olds)  # sources disagree; launch = earliest sighting
             cols = {k: c.get(k) for k in COLUMNS}
             cols["is_runner"] = int(bool(c.get("is_runner")))
             if c.get("is_real") is not None:

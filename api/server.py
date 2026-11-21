@@ -98,7 +98,7 @@ def state():
         "last_scan": get_db().kv_get("last_scan"),
         "summary": cached("summary", 10, summary),
         "tape": cached("tape", 5, tape),
-        "themes": cached("themes", 10, themes_live),
+        "themes": cached("themes", 30, themes_live),
         "daily": thesis.latest("daily"),
         "hourly": thesis.latest("hourly"),
         "agents": rows("SELECT * FROM agents"),

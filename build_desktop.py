@@ -22,7 +22,7 @@ args = [
     "--add-data", f"config.json{sep}.",
     "--add-data", f"version.json{sep}.",
 ]
-for pkg in ("core", "api", "sources", "signals", "catalysts", "uvicorn", "anthropic"):
+for pkg in ("core", "api", "sources", "signals", "catalysts", "uvicorn", "anthropic", "websockets"):
     args += ["--collect-submodules", pkg]
 if sys.platform == "darwin":
     args += ["--windowed", "--osx-bundle-identifier", "app.trenchscope"]  # TrenchScope.app

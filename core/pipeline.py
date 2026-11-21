@@ -90,16 +90,26 @@ def scan(backfill_days: float | None = None) -> dict:
                     found.setdefault(c["mint"], {}).update({k: v for k, v in c.items() if v is not None})
             except Exception as e:
                 log("SCOUT", f"{s.name}.discover failed: {e}", "error")
-        existing = {r["mint"] for r in db.q("SELECT mint FROM coins WHERE created_ts >= ?", (since,))}
+        existing = {r["mint"] for r in db.q("SELECT mint FROM coins WHERE created_ts >= ? OR created_ts IS NULL", (since,))}
         new = [c for m, c in found.items() if m not in existing]
         for c in found.values():
+            if c.get("usd_market_cap"):
+                derive(c, thr)
             c["themes"] = narratives.tag(c)
         db.upsert_many(list(found.values()))
         stats["discovered"] = len(found)
         run.result = f"{len(found)} coins seen, {len(new)} new"
         log("SCOUT", run.result)
 
-    window = {c["mint"]: c for c in db.coins("created_ts >= ?", (since,))}
+    # Which coins get enriched. "candidates" (live default): graduated coins, coins already near the
+    # runner bar, and coins whose launch time we don't know yet. Every coin over $100k has graduated,
+    # so this covers all runners without enriching 20k+ dead launches a day.
+    if pc.get("cheap_scope", "candidates") == "all":
+        window = {c["mint"]: c for c in db.coins("created_ts >= ? OR created_ts IS NULL", (since,))}
+    else:
+        window = {c["mint"]: c for c in db.coins(
+            "(created_ts >= ? AND (json_extract(data,'$.complete') IN (1, 'true') OR ath_mcap >= ?)) OR created_ts IS NULL",
+            (since, pc.get("ath_prefilter_usd", 40_000)))}
 
     # 2. CHEAP enrichment -----------------------------------------------------
     with AgentRun("SCOUT", "cheap enrichment") as run:
@@ -120,6 +130,8 @@ def scan(backfill_days: float | None = None) -> dict:
             derive(c, thr)
             c["themes"] = narratives.tag(c)
         db.upsert_many(list(batch.values()))
+        for m in [m for m, c in window.items() if not c.get("created_ts") or c["created_ts"] < since]:
+            window.pop(m)  # launch time still unknown, or older than the lookback
         stats["cheap"] = len(batch)
         run.result = f"cheap-enriched {len(batch)} coins"
         log("SCOUT", run.result)
@@ -217,6 +229,11 @@ def scan(backfill_days: float | None = None) -> dict:
             db.conn.execute("INSERT INTO snapshots(mint,ts,mcap,holders,volume_24h,data) VALUES(?,?,?,?,?,?)",
                             (c["mint"], now, c.get("usd_market_cap"), c.get("holders"), c.get("volume_24h"), None))
         db.conn.commit()
+
+    # keep the db small: drop non-runners well past the lookback (launch counts need ~4 extra days)
+    keep = now - int((pc.get("lookback_days", 7) + 4) * 86400)
+    db.x("DELETE FROM coins WHERE is_runner=0 AND (created_ts < ? OR (created_ts IS NULL AND updated_ts < ?))",
+         (keep, now - 3 * 86400))
 
     stats["seconds"] = round(time.time() - t0, 1)
     db.kv_set("last_scan", {"ts": now, **stats})

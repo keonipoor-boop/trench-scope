@@ -7,7 +7,8 @@ import time
 from core.events import log
 from sources.base import Source
 
-HEADERS = {"Origin": "https://pump.fun", "Referer": "https://pump.fun/"}
+HEADERS = {"Origin": "https://pump.fun", "Referer": "https://pump.fun/",
+           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"}
 
 
 def normalize(raw: dict) -> dict | None:
@@ -52,6 +53,10 @@ class PumpFun(Source):
     order = 10
 
     _working: tuple[str, str] | None = None
+    _blocked_until = 0.0  # Cloudflare blocks most servers; back off instead of failing every scan
+
+    def enabled(self) -> bool:
+        return super().enabled() and time.time() >= PumpFun._blocked_until
 
     def _list(self, base, path, offset, sort, complete):
         url = base + path.format(offset=offset, limit=self.conf.get("page_limit", 50), sort=sort,
@@ -96,7 +101,10 @@ class PumpFun(Source):
             except Exception as e:
                 log("SCOUT", f"pump.fun endpoint failed {base}{path.split('?')[0]}: {e}", "warn")
                 continue
-        log("SCOUT", "pump.fun: every configured endpoint failed", "error")
+        hrs = self.conf.get("blocked_backoff_h", 6)
+        PumpFun._blocked_until = time.time() + hrs * 3600
+        log("SCOUT", f"pump.fun API unreachable (Cloudflare blocks many servers). Pausing it for {hrs}h; "
+                     "PumpPortal + GeckoTerminal + DexScreener keep discovery running", "warn")
         return list(out.values())
 
     def doctor(self):
@@ -121,6 +129,9 @@ class PumpFunDetails(Source):
     def __init__(self, cfg=None):
         super().__init__(cfg)
         self.conf = {**self.cfg.source("pumpfun"), **self.conf}
+
+    def enabled(self) -> bool:
+        return super().enabled() and time.time() >= PumpFun._blocked_until
 
     def fetch(self, mint):
         for b in self.conf.get("base_urls", []):
