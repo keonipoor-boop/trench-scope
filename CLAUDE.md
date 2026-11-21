@@ -37,7 +37,11 @@ merges them (None never overwrites; `ath_mcap` only ever goes up). Common fields
 
 | field | set by |
 |---|---|
-| name, symbol, description, image, twitter, website, telegram, created_ts, complete, pf_ath_mcap, livestream, bonding_curve, pool_address | pumpfun |
+| name, symbol, created_ts, metadata_uri, bonding_curve, complete, migrated_ts | pumpportal (live websocket) |
+| symbol, pool_address, usd_market_cap, volume_24h, complete, created_ts (provisional) | gecko_discovery |
+| description, twitter_dex, website, telegram, dex_boosts | dex_feeds |
+| description, twitter, website, telegram, image | metadata (uri JSON, then GeckoTerminal info) |
+| name, symbol, description, image, twitter, website, telegram, created_ts, complete, pf_ath_mcap, livestream, bonding_curve, pool_address | pumpfun (often Cloudflare-blocked on servers; auto-pauses) |
 | usd_market_cap, volume_24h, txns_24h, pair_address, dex_url, liquidity_usd | dexscreener |
 | ath_mcap, ts_100k (→ time_to_100k_min) | geckoterminal (OHLCV) |
 | holders, top10_pct | helius_holders |
@@ -49,7 +53,8 @@ merges them (None never overwrites; `ath_mcap` only ever goes up). Common fields
 ## Pipeline stages and costs
 
 1. **discover** — every source with `discover(since_ts)`.
-2. **cheap** (`stage="cheap"`) — all window coins due for refresh (`pipeline.cheap_refresh_min`, 60 min for coins >24h old), capped by `max_cheap_per_scan`.
+2. **cheap** (`stage="cheap"`) — with `pipeline.cheap_scope: "candidates"` (live default) only graduated coins,
+   coins with ATH ≥ prefilter, and coins with unknown launch time; `"all"` (demo) = every coin. Due for refresh (`pipeline.cheap_refresh_min`, 60 min for coins >24h old), capped by `max_cheap_per_scan`.
 3. **ohlcv** (`stage="ohlcv"`) — only candidates (ATH ≥ `ath_prefilter_usd` or graduated), re-checked every `ohlcv_refresh_min`. GeckoTerminal is rate limited to `rate_per_min` (28).
 4. **runners** — `ath_mcap ≥ runner_ath_usd`.
 5. **expensive** (`stage="expensive"`) — runners only, at most every `deep_refresh_min` (30), capped by `max_deep_per_scan`.
@@ -150,6 +155,9 @@ Add a `<section class="panel p-cyan" id="x">` in web/index.html, a grid-area in 
 - **Settings API** (`/api/settings`): saving is allowed from localhost, or with header `x-admin-password` when `ADMIN_PASSWORD`
   is set (hosted). Changing the mode re-execs the process.
 - New plugin modules are picked up by the desktop build automatically (`--collect-submodules`).
+
+- `created_ts` always keeps the earliest value any source reports (DexScreener's first pair = launch).
+- Non-runners older than lookback + 4 days are pruned each scan.
 
 ## Conventions
 - All thresholds in config.json; read via `self.conf` (plugins) or `get_config().get_path(...)`.

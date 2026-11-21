@@ -65,6 +65,20 @@ python run.py daemon        # scan every 10 min, hourly meta at :00, daily thesi
 Add `--demo` to any command to run it against the demo database. Use `--host 0.0.0.0 --port 8000`
 to expose the dashboard.
 
+## Where the live data comes from
+
+| source | what | key? |
+|---|---|---|
+| PumpPortal live feed | every pump.fun launch + migration in real time (websocket) | no |
+| GeckoTerminal | PumpSwap + pump.fun pool lists (backfill), ATH from price history, token info | no |
+| DexScreener | market cap, volume, txns, launch time, socials, profile/boost feeds | no |
+| pump.fun API | extra details when reachable (Cloudflare blocks most servers; auto-pauses) | no |
+| Helius | holders, top-10 %, fees, unique traders, KOL wallet buys | yes (free) |
+| X API | mentions, big accounts, tweet authors | optional |
+
+PumpPortal only sees launches while the app is running, so hit rates per theme get more accurate
+after the app has been on for a day or so. Migrated coins and runners are backfilled from GeckoTerminal right away.
+
 ## What it checks
 
 - **Runner:** ATH market cap ≥ $100k (`pipeline.runner_ath_usd`). ATH comes from GeckoTerminal
