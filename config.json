@@ -27,7 +27,7 @@
   "signals": {
     "holders":   {"enabled": true, "required": true,  "min": 300},
     "top10":     {"enabled": true, "required": true,  "max_pct": 35},
-    "fees":      {"enabled": true, "required": true,  "min_sol_per_100k_ath": 2.0, "min_fee_volume_pct": 0.25},
+    "fees":      {"enabled": true, "required": true,  "min_sol_per_100k_ath": 2.0, "min_fee_volume_pct": 0.25, "min_organic_score": 25},
     "kols":      {"enabled": true, "required": false, "min": 1},
     "traders":   {"enabled": true, "required": true,  "min": 150}
   },
@@ -81,6 +81,8 @@
     "pumpportal": {"enabled": true, "url": "wss://pumpportal.fun/api/data"},
     "gecko_discovery": {"enabled": true, "pumpswap_pages": 10, "pumpswap_tx_pages": 5, "pumpfun_pages": 3},
     "dex_feeds": {"enabled": true},
+    "jupiter": {"enabled": true, "base_url": "https://lite-api.jup.ag", "launchpads": ["pump.fun"], "rate_per_min": 50},
+    "jupiter_tokens": {"enabled": true, "batch": 100, "rate_per_min": 50},
     "metadata": {"enabled": true, "gt_info_per_scan": 8},
     "dexscreener": {"enabled": true, "base_url": "https://api.dexscreener.com", "batch": 30, "rate_per_min": 250},
     "geckoterminal": {"enabled": true, "base_url": "https://api.geckoterminal.com/api/v2", "timeframe": "hour", "aggregate": 1, "limit": 200, "rate_per_min": 24},

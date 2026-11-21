@@ -208,7 +208,8 @@ async function openCoin(mint) {
       <ul>${why.map(b => `<li>${esc(b)}</li>`).join("")}</ul></div>
     <div class="grid3"><div><span>TIME TO 100K</span><b>${mins(c.time_to_100k_min)}</b></div><div><span>AGE</span><b>${ago(c.created_ts)}</b></div><div><span>VOL 24H</span><b>${usd(c.volume_24h)}</b></div>
       <div><span>HOLDERS</span><b>${c.holders?.toLocaleString() ?? "—"}</b></div><div><span>TOP 10</span><b>${c.top10_pct != null ? c.top10_pct + "%" : "—"}</b></div><div><span>TRADERS</span><b>${c.unique_traders?.toLocaleString() ?? "—"}</b></div>
-      <div><span>FEES PAID</span><b>${c.fees_sol != null ? c.fees_sol + " SOL" : "—"}</b></div><div><span>FEE / VOL</span><b>${c.fee_volume_pct != null ? c.fee_volume_pct + "%" : "—"}</b></div><div><span>X MENTIONS</span><b>${c.x_mentions ?? "—"}${c.x_big_account ? " ★" : ""}</b></div></div>
+      <div><span>FEES PAID</span><b>${c.fees_sol != null ? c.fees_sol + " SOL" : "—"}</b></div><div><span>FEE / VOL</span><b>${c.fee_volume_pct != null ? c.fee_volume_pct + "%" : "—"}</b></div><div><span>X MENTIONS</span><b>${c.x_mentions ?? "—"}${c.x_big_account ? " ★" : ""}</b></div>
+      <div><span>ORGANIC SCORE</span><b>${c.organic_score ?? "—"}</b></div><div><span>ORGANIC VOL</span><b>${c.organic_volume_pct != null ? c.organic_volume_pct + "%" : "—"}</b></div><div><span>DEV LAUNCHES</span><b>${c.dev_launches ?? "—"}</b></div></div>
     ${!c.demo ? `<div class="sec"><span>LIVE CHART</span><span>dexscreener</span></div>
       <iframe class="dexchart" loading="lazy" title="DexScreener chart" referrerpolicy="no-referrer"
         src="https://dexscreener.com/solana/${encodeURIComponent(c.pair_address || c.mint)}?embed=1&theme=dark&trades=0&info=0&chartLeftToolbar=0"></iframe>` : ""}

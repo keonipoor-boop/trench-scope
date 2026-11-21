@@ -8,6 +8,14 @@ class Fees(Signal):
 
     def evaluate(self, coin):
         fees, ath, fvp = coin.get("fees_sol"), coin.get("ath_mcap") or 0, coin.get("fee_volume_pct")
+        if (fees is None or not ath) and coin.get("organic_score") is not None:
+            # no Helius fee sample: fall back to Jupiter's organic-volume score (also anti-wash)
+            org, need = coin["organic_score"], self.conf.get("min_organic_score", 25)
+            ovp = coin.get("organic_volume_pct")
+            note = f"organic score {org:.0f}/100 (min {need})" + (f", {ovp:.1f}% organic volume" if ovp is not None else "")
+            if org < need:
+                note += " -> likely botted volume"
+            return self.result(org >= need, org / (need * 2), round(org, 1), note + " [Jupiter; add Helius for fee data]")
         if fees is None or not ath:
             return self.missing()
         per100k = fees / (ath / 100_000)

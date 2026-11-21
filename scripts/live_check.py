@@ -29,7 +29,8 @@ if n["n"]:
 print("\n=== TOP RUNNERS")
 for c in db.coins("is_runner=1", order="ath_mcap DESC", limit=25):
     print(f"  ${c.get('symbol'):<10} ATH {c['ath_mcap']:>12,.0f}  MC {c.get('usd_market_cap') or 0:>12,.0f}  "
-          f"age {(time.time() - c['created_ts']) / 3600:5.1f}h  real={c.get('is_real')}  {c.get('primary_catalyst')}")
+          f"age {(time.time() - c['created_ts']) / 3600:5.1f}h  real={c.get('is_real')}  {c.get('primary_catalyst')}  "
+          f"holders={c.get('holders')} top10={c.get('top10_pct')} org={c.get('organic_score')}")
 by = {}
 for c in db.coins("1=1"):
     for s in [c.get("seen_by") or "?"]:
@@ -40,5 +41,6 @@ for sym in sys.argv[1:]:
     print(f"\n=== LOOKUP ${sym}: {len(rows)} match(es)")
     for c in rows:
         keys = ["mint", "name", "created_ts", "complete", "usd_market_cap", "pf_ath_mcap", "ohlcv_ath", "ath_mcap",
-                "is_runner", "pair_address", "dex_id", "ts_100k", "twitter", "description", "primary_catalyst", "themes"]
+                "is_runner", "is_real", "holders", "top10_pct", "unique_traders", "organic_score", "ts_100k", "twitter",
+                "primary_catalyst", "themes"]
         print("  " + ", ".join(f"{k}={c.get(k)}" for k in keys))
