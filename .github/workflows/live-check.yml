@@ -13,6 +13,9 @@ on:
       probe:
         description: "Also probe candidate endpoints"
         default: "no"
+      debug:
+        description: "Only run the fee debugger on the symbols"
+        default: "no"
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -25,7 +28,11 @@ jobs:
       - run: pip install -r requirements.txt
       - if: ${{ inputs.probe == 'yes' }}
         run: pip install websockets && python scripts/probe.py
-      - run: python run.py doctor || true
-      - run: python scripts/live_check.py ${{ inputs.symbols }}
+      - if: ${{ inputs.debug == 'yes' }}
+        run: python scripts/fee_debug.py ${{ inputs.symbols }}
+      - if: ${{ inputs.debug != 'yes' }}
+        run: python run.py doctor || true
+      - if: ${{ inputs.debug != 'yes' }}
+        run: python scripts/live_check.py ${{ inputs.symbols }}
         env:
           DAYS: ${{ inputs.days }}
