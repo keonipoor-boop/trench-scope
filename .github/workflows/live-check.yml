@@ -10,6 +10,9 @@ on:
       days:
         description: "Lookback days"
         default: "2"
+      probe:
+        description: "Also probe candidate endpoints"
+        default: "no"
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -20,6 +23,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - if: ${{ inputs.probe == 'yes' }}
+        run: pip install websockets && python scripts/probe.py
       - run: python run.py doctor || true
       - run: python scripts/live_check.py ${{ inputs.symbols }}
         env:
