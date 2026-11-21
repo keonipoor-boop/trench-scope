@@ -53,7 +53,13 @@ function renderBoard() {
 }
 
 function renderTape() {
-  const t = STATE.tape; if (!t.length) { $("#book").innerHTML = `<div class="empty">no runners yet — run a scan</div>`; return; }
+  const t = STATE.tape;
+  if (!t.length) {
+    const scout = STATE.agents.find(a => a.name === "SCOUT") || {};
+    const msg = scout.status === "running" ? `scanning… ${esc(scout.detail || "")}<br><br><span class="dim">first scan takes ~5–10 min · watch THE TRACE below</span>`
+      : STATE.last_scan ? `no runners in the last ${STATE.mode === "demo" ? "7 days" : "window"} yet · next scan soon` : "waiting for the first scan…";
+    $("#book").innerHTML = `<div class="empty">${msg}</div>`; $("#tape-hdr").textContent = ""; return;
+  }
   const max = Math.max(...t.map(c => c.ath_mcap || 0));
   $("#t-last").textContent = usd(t[0].ath_mcap);
   $("#t-lastsym").textContent = `$${t[0].symbol} · ${ago(t[0].ts_100k || t[0].created_ts)} ago`;
