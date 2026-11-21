@@ -38,18 +38,22 @@ class Metadata(Source):
                 "website": (a.get("websites") or [None])[0], "image": a.get("image_url")}
 
     def enrich(self, coins):
-        out = {}
+        out, gt_left = {}, self.conf.get("gt_info_per_scan", 8)
+        thr = self.cfg.get_path("pipeline.runner_ath_usd", 100_000)
         for c in coins:
-            if c.get("meta_done"):
+            if c.get("meta_done") or (c.get("description") and (c.get("twitter") or c.get("twitter_dex"))):
                 continue
             meta = {}
             try:
                 if c.get("metadata_uri"):
                     meta = self.from_uri(c["metadata_uri"])
                 if not (meta.get("description") or meta.get("twitter")):
+                    if gt_left <= 0 or (c.get("ath_mcap") or 0) < thr:
+                        continue  # GeckoTerminal budget goes to runners; try again next scan
+                    gt_left -= 1
                     meta = {**self.from_gt(c["mint"]), **{k: v for k, v in meta.items() if v}}
             except Exception:
-                pass
+                continue
             upd = {k: v for k, v in meta.items() if v and not c.get(k)}
             upd["meta_done"] = True
             out[c["mint"]] = upd

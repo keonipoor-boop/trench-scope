@@ -67,7 +67,7 @@ def request(method: str, url: str, *, rate_key: str | None = None, per_min: floa
         if r.status_code == 429 or r.status_code >= 500:
             last = HTTPError(f"HTTP {r.status_code}", r.status_code)
             ra = r.headers.get("retry-after")
-            time.sleep(float(ra) if ra and ra.replace(".", "").isdigit() else min(2 ** (attempt + 1), 20))
+            time.sleep(min(float(ra), 30) if ra and ra.replace(".", "").isdigit() else min(2 ** (attempt + 1), 8))
             continue
         if r.status_code >= 400:
             raise HTTPError(f"HTTP {r.status_code}: {r.text[:200]}", r.status_code)

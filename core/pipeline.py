@@ -144,7 +144,10 @@ def scan(backfill_days: float | None = None) -> dict:
             cand = [c for c in window.values()
                     if ((c.get("ath_mcap") or 0) >= pre or c.get("complete"))
                     and (c.get("ohlcv_ts") or 0) < now - 60 * pc.get("ohlcv_refresh_min", 60)]
-            cand.sort(key=lambda c: -(c.get("ath_mcap") or 0))
+            # never-checked coins first (newest first): that's where a dumped coin's hidden
+            # $100k+ ATH lives. Then refresh the rest, biggest first.
+            cand.sort(key=lambda c: (bool(c.get("ohlcv_ts")), -(c.get("created_ts") or 0) if not c.get("ohlcv_ts")
+                                     else -(c.get("ath_mcap") or 0)))
             batch = {c["mint"]: c for c in cand[: pc.get("max_ohlcv_per_scan", 60)]}
             for s in ohlcv_sources:
                 if batch:
@@ -153,7 +156,8 @@ def scan(backfill_days: float | None = None) -> dict:
                     except Exception as e:
                         log("SCOUT", f"{s.name}.enrich failed: {e}", "error")
             for c in batch.values():
-                c["ohlcv_ts"] = now
+                if c.get("ohlcv_ath") is not None or c.get("ohlcv_ts"):
+                    c["ohlcv_ts"] = now  # throttled coins keep ohlcv_ts=0 and go first next scan
                 derive(c, thr)
             db.upsert_many(list(batch.values()))
             stats["ohlcv"] = len(batch)

@@ -134,6 +134,7 @@ class PumpFunDetails(Source):
         return super().enabled() and time.time() >= PumpFun._blocked_until
 
     def fetch(self, mint):
+        blocked = 0
         for b in self.conf.get("base_urls", []):
             for p in self.conf.get("detail_paths", ["/coins/{mint}"]):
                 try:
@@ -141,13 +142,17 @@ class PumpFunDetails(Source):
                     c = normalize(d)
                     if c:
                         return c
-                except Exception:
-                    continue
+                except Exception as e:
+                    blocked += getattr(e, "status", None) == 403
+        if blocked:  # every endpoint refused us: stop asking for a while
+            PumpFun._blocked_until = time.time() + self.conf.get("blocked_backoff_h", 6) * 3600
         return None
 
     def enrich(self, coins):
         out = {}
         for c in coins:
+            if time.time() < PumpFun._blocked_until:
+                break
             d = self.fetch(c["mint"])
             if d:
                 out[c["mint"]] = {k: v for k, v in d.items() if v is not None}

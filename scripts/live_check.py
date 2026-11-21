@@ -13,7 +13,7 @@ from core.db import get_db  # noqa: E402
 
 from sources import pumpportal  # noqa: E402
 pumpportal.start()
-wait = int(os.getenv("WAIT", "120"))
+wait = int(os.getenv("WAIT", "60"))
 print(f"listening to PumpPortal for {wait}s before scanning...", flush=True)
 time.sleep(wait)
 print("feed:", pumpportal.status())

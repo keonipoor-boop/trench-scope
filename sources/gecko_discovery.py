@@ -73,7 +73,8 @@ class GeckoDiscovery(Source):
     def discover(self, since_ts):
         out = {}
         for dex, pages, sort in (("pumpswap", self.conf.get("pumpswap_pages", 10), "h24_volume_usd_desc"),
-                                 ("pump-fun", self.conf.get("pumpfun_pages", 5), None)):
+                                 ("pumpswap", self.conf.get("pumpswap_tx_pages", 5), "h24_tx_count_desc"),
+                                 ("pump-fun", self.conf.get("pumpfun_pages", 3), None)):
             for page in range(1, pages + 1):
                 try:
                     rows = self.pools(dex, page, sort)
