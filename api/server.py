@@ -211,6 +211,15 @@ def version():
     return updates.status()
 
 
+@app.post("/api/shutdown")
+def shutdown(req: Request):
+    """Used by a newer desktop launcher to replace an older copy. Localhost only, never hosted."""
+    if os.getenv("TRENCH_HOSTED") or not _can_edit(req):
+        raise HTTPException(403, "not allowed")
+    threading.Timer(0.3, lambda: os._exit(0)).start()
+    return {"ok": True}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "mode": get_config()["mode"], "last_scan": get_db().kv_get("last_scan")}

@@ -34,6 +34,39 @@ def already_running(port) -> bool:
         return False
 
 
+def running_version(port):
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/version", timeout=2) as r:
+            return json.loads(r.read()).get("version")
+    except Exception:
+        return None
+
+
+def my_version():
+    import json
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    try:
+        return json.loads((base / "version.json").read_text()).get("version")
+    except Exception:
+        return "dev"
+
+
+def stop_old_copy(port) -> bool:
+    """A different version is running (e.g. you just updated): ask it to quit so we can take over."""
+    import urllib.request
+    try:
+        urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/api/shutdown", method="POST"), timeout=3)
+    except Exception:
+        pass
+    for _ in range(30):
+        time.sleep(0.5)
+        if not already_running(port):
+            return True
+    return False
+
+
 def free_port(start=8000) -> int:
     for p in range(start, start + 50):
         with socket.socket() as s:
@@ -45,8 +78,13 @@ def free_port(start=8000) -> int:
 def main():
     os.environ.setdefault("TRENCH_DATA_DIR", str(data_dir()))
     if already_running(8000):
-        webbrowser.open("http://127.0.0.1:8000")
-        return
+        old = running_version(8000)
+        if old == my_version():
+            webbrowser.open("http://127.0.0.1:8000")  # this version is already running
+            return
+        print(f"  Replacing the running copy ({old or 'older version'}) with {my_version()}...")
+        if not stop_old_copy(8000):
+            print("  Old copy did not stop (it predates auto-replace). Starting on another port; close the old window when you can.")
     port = free_port(8000)
     url = f"http://127.0.0.1:{port}"
     print(f"\n  TRENCH SCOPE is running at {url}\n  Close this window to stop it.\n  Data folder: {os.environ['TRENCH_DATA_DIR']}\n")
