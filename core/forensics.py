@@ -29,8 +29,12 @@ def _clamp(x):
     return max(0.0, min(1.0, x))
 
 
-def trade_features(trades: list[dict]) -> dict:
-    """trades: [{payer, side: 'buy'|'sell', sol, fee_sol, tip_sol, ts}] (any order)."""
+def trade_features(trades: list[dict], min_trade_sol: float = 0.1, paid_pct: float = 0.3) -> dict:
+    """trades: [{payer, side: 'buy'|'sell', sol, fee_sol, tip_sol, ts}] (any order).
+
+    Fee metrics only use trades >= min_trade_sol: popular coins attract swarms of 0.01 SOL
+    micro-bots that would otherwise make every coin look botted. A trade "paid real fees" when
+    priority + tips + terminal fees >= paid_pct % of its size (terminal users pay ~1%)."""
     trades = [t for t in trades if t.get("payer") and t.get("side") in ("buy", "sell")]
     n = len(trades)
     if n < 10:
@@ -52,13 +56,20 @@ def trade_features(trades: list[dict]) -> dict:
         mode_share = max(counts.values()) / len(sizes)
     ts = sorted(t["ts"] for t in trades if t.get("ts"))
     gaps = [b - a for a, b in zip(ts, ts[1:]) if b >= a]
-    fees = sum((t.get("fee_sol") or 0) + (t.get("tip_sol") or 0) for t in trades)
-    vol = sum(t.get("sol") or 0 for t in trades)
+    def overhead(t):  # cap: anything above 5% + 0.01 SOL is a transfer, not a fee
+        return min((t.get("fee_sol") or 0) + (t.get("tip_sol") or 0), 0.05 * (t.get("sol") or 0) + 0.01)
+    fees = sum(overhead(t) for t in trades)
+    big = [t for t in trades if (t.get("sol") or 0) >= min_trade_sol]
+    big_vol = sum(t["sol"] for t in big)
+    big_fees = sum(overhead(t) for t in big)
+    paid_vol = sum(t["sol"] for t in big if overhead(t) >= paid_pct / 100 * t["sol"])
     return {
         "sample_txs": n, "sample_traders": wallets,
-        "sample_fees_sol": round(fees, 5), "sample_volume_sol": round(vol, 3),
+        "sample_fees_sol": round(fees, 5), "sample_volume_sol": round(sum(t.get("sol") or 0 for t in trades), 3),
         "avg_fee_sol": fees / n,
-        "fee_volume_pct": round(fees / vol * 100, 3) if vol else None,
+        "sample_big_trades": len(big),
+        "fee_volume_pct": round(big_fees / big_vol * 100, 3) if len(big) >= 8 and big_vol else None,
+        "fee_paying_volume_pct": round(paid_vol / big_vol * 100, 1) if len(big) >= 8 and big_vol else None,
         "round_trip_pct": round(len(rt) / wallets * 100, 1),
         "symmetric_wallet_pct": round(len(sym) / wallets * 100, 1),
         "size_mode_pct": round(mode_share * 100, 1),

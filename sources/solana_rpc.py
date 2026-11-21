@@ -84,7 +84,8 @@ class SolanaRpcTxs(Source):
                             trades.append(t)
             except Exception:
                 continue
-            feats = trade_features(trades)
+            fc = self.cfg.get("signals", {}).get("fees", {})
+            feats = trade_features(trades, fc.get("min_trade_sol", 0.1), fc.get("min_fee_volume_pct", 0.3))
             if feats.get("sample_txs", 0) >= 10:
                 out[c["mint"]] = to_update(c, feats)
         return out

@@ -2,30 +2,28 @@ from signals.base import Signal
 
 
 class Fees(Signal):
-    """Real buyers pay fees (network + priority + Jito tips). Wash/botted volume shows up as
-    huge volume with tiny fees relative to ATH and relative to the volume itself."""
+    """Real buyers pay to trade: priority fees, Jito tips and terminal fees (Axiom/Photon/GMGN ~1%).
+    Bots that paint staircase charts call the program directly and pay almost nothing, so lots of
+    volume with very little fee behind it is the tell (the "F" number on Axiom)."""
     key, label = "fees", "FEES"
 
     def evaluate(self, coin):
-        fees, ath, fvp = coin.get("fees_sol"), coin.get("ath_mcap") or 0, coin.get("fee_volume_pct")
-        if (fees is None or not ath) and (coin.get("organic_score") or 0) > 0:  # 0 = Jupiter hasn't scored it
-            # no Helius fee sample: fall back to Jupiter's organic-volume score (also anti-wash)
-            org, need = coin["organic_score"], self.conf.get("min_organic_score", 25)
-            ovp = coin.get("organic_volume_pct")
-            note = f"organic score {org:.0f}/100 (min {need})" + (f", {ovp:.1f}% organic volume" if ovp is not None else "")
-            if org < need:
-                note += " -> likely botted volume"
-            return self.result(org >= need, org / (need * 2), round(org, 1), note + " [Jupiter; add Helius for fee data]")
-        if fees is None or not ath:
-            return self.missing()
-        per100k = fees / (ath / 100_000)
-        need_a, need_b = self.conf.get("min_sol_per_100k_ath", 2.0), self.conf.get("min_fee_volume_pct", 0.25)
-        ok_a = per100k >= need_a
-        ok_b = fvp is None or fvp >= need_b
-        score = 0.5 * min(1, per100k / (need_a * 2)) + 0.5 * (min(1, (fvp or need_b) / (need_b * 3)))
-        note = f"{per100k:.2f} SOL fees (priority+tips+terminal) per $100k ATH (min {need_a})"
-        if fvp is not None:
-            note += f", fee/vol {fvp:.2f}% (min {need_b}%)"
-        if not (ok_a and ok_b):
-            note += " -> likely wash/botted volume"
-        return self.result(ok_a and ok_b, score, round(per100k, 2), note)
+        c = self.conf
+        share, fvp = coin.get("fee_paying_volume_pct"), coin.get("fee_volume_pct")
+        fees, ath = coin.get("fees_sol"), coin.get("ath_mcap") or 0
+        per100k = f", ~{fees / (ath / 100_000):.1f} SOL per $100k ATH" if fees and ath else ""
+        if share is not None:
+            need_share, need_fvp = c.get("min_fee_paying_volume_pct", 40), c.get("min_fee_volume_pct", 0.3)
+            ok = share >= need_share and (fvp is None or fvp >= need_fvp)
+            note = (f"{share:.0f}% of volume paid real fees (min {need_share}%), fees = {fvp:.2f}% of volume"
+                    f" (min {need_fvp}%){per100k} [{coin.get('sample_big_trades')} trades >= 0.1 SOL]")
+            if not ok:
+                note += " -> volume without fees: bot-painted"
+            return self.result(ok, 0.5 * min(1, share / (need_share * 1.5)) + 0.5 * min(1, (fvp or 0) / (need_fvp * 3)),
+                               round(share, 1), note)
+        if (coin.get("organic_score") or 0) > 0:  # 0 = Jupiter hasn't scored it yet
+            org, need = coin["organic_score"], c.get("min_organic_score", 25)
+            note = f"Jupiter organic score {org:.0f}/100 (min {need})" + (" -> likely botted volume" if org < need else "")
+            return self.result(org >= need, org / (need * 2), round(org, 1),
+                               note + " [no fee sample yet; a Helius key samples more trades]")
+        return self.missing("not enough trades >= 0.1 SOL sampled yet (a Helius key samples deeper)")

@@ -147,7 +147,7 @@ class HeliusTxs(Source):
     def enrich(self, coins):
         from core.forensics import to_update, trade_features
         out = {}
-        size, pages = self.conf.get("sample_size", 100), self.conf.get("sample_pages", 3)
+        size, pages = self.conf.get("sample_size", 100), self.conf.get("sample_pages", 5)
         for c in coins:
             pool = c.get("pair_address") or c.get("pool_address") or c.get("bonding_curve")
             txs, before = [], None
@@ -161,7 +161,9 @@ class HeliusTxs(Source):
             except Exception:
                 if not txs:
                     continue
-            feats = trade_features(self.to_trades(txs, c["mint"], pool))
+            fc = self.cfg.get("signals", {}).get("fees", {})
+            feats = trade_features(self.to_trades(txs, c["mint"], pool), fc.get("min_trade_sol", 0.1),
+                                   fc.get("min_fee_volume_pct", 0.3))
             if feats.get("sample_txs", 0) >= 10:
                 out[c["mint"]] = to_update(c, feats)
         return out

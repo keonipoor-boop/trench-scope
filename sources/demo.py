@@ -267,6 +267,8 @@ class DemoDeep(_DemoBase):
                 "green_ratio": round(r.uniform(0.88, 0.99) if botted else r.uniform(0.5, 0.7), 2),
                 "max_pullback_pct": round(r.uniform(0, 6) if botted else r.uniform(18, 45), 1),
                 "cliff_dump": botted or r.random() < 0.15,
+                "fee_paying_volume_pct": round(r.uniform(2, 25) if botted else r.uniform(50, 92), 1),
+                "sample_big_trades": r.randint(20, 120),
             }
             mentions = int(scale * r.uniform(5, 40))
             big = s["cat"] == "celeb" or r.random() < 0.15 * min(scale, 3)
