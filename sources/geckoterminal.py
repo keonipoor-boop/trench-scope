@@ -8,7 +8,7 @@ from sources.base import Source
 def sane_ath(rows, supply: float = 1e9) -> float:
     """Highest believable price. Ignores dust trades (tiny-volume candles), broken wicks
     (high counts up to 10x the candle's open/close), closes >50x the median, and any peak
-    implying a market cap above 100x everything ever traded in the window."""
+    implying a market cap above 3x everything traded in the window (real runs trade their market cap)."""
     if not rows:
         return 0.0
     total_vol = sum((r[5] if len(r) > 5 else 0) or 0 for r in rows)
@@ -24,8 +24,8 @@ def sane_ath(rows, supply: float = 1e9) -> float:
         if med and cl > med * 50:
             continue
         best = max(best, min(h, 10 * max(o, cl)))
-    if total_vol and best * supply > 100 * total_vol:
-        best = min(best, 100 * total_vol / supply)
+    if total_vol and best * supply > 3 * total_vol:
+        best = min(best, 3 * total_vol / supply)
     return best
 
 

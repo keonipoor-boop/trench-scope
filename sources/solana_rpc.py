@@ -6,10 +6,10 @@ from __future__ import annotations
 from core.config import env
 from core.forensics import to_update, trade_features
 from sources.base import Source
-from sources.helius import JITO_TIP_ACCOUNTS, LAMPORTS
+from sources.helius import LAMPORTS, PUMP_FEE_ACCOUNTS, TOKEN_ACCOUNT_RENT
 
 
-def parse_tx(tx: dict, mint: str) -> dict | None:
+def parse_tx(tx: dict, mint: str, pool: str | None = None) -> dict | None:
     if not tx or (tx.get("meta") or {}).get("err") is not None:
         return None
     meta, msg = tx["meta"], (tx.get("transaction") or {}).get("message") or {}
@@ -21,8 +21,17 @@ def parse_tx(tx: dict, mint: str) -> dict | None:
     payer = keys[0]
     pre, post = meta.get("preBalances") or [], meta.get("postBalances") or []
     fee = (meta.get("fee") or 0) / LAMPORTS
-    tip = sum(max(0, post[i] - pre[i]) for i, k in enumerate(keys[:len(post)])
-              if k in JITO_TIP_ACCOUNTS and i < len(pre)) / LAMPORTS
+    # tips + trading-terminal fees: SOL landing in existing plain accounts other than the pool,
+    # token accounts and pump's protocol fee wallets (Axiom-style "fees paid")
+    token_idx = {b.get("accountIndex") for b in (meta.get("preTokenBalances") or []) + (meta.get("postTokenBalances") or [])}
+    tip = 0
+    for i, k in enumerate(keys[:min(len(pre), len(post))]):
+        d = post[i] - pre[i]
+        if i == 0 or d <= 0 or pre[i] == 0 or i in token_idx or k == pool or k in PUMP_FEE_ACCOUNTS \
+                or d == TOKEN_ACCOUNT_RENT:
+            continue
+        tip += d
+    tip /= LAMPORTS
     change = ((post[0] - pre[0]) / LAMPORTS) if pre and post else 0
 
     def bal(lst):
@@ -51,7 +60,7 @@ class SolanaRpcTxs(Source):
                               headers={"Content-Type": "application/json"})
 
     def enrich(self, coins):
-        out, budget = {}, self.conf.get("coins_per_scan", 8)
+        out, budget = {}, self.conf.get("coins_per_scan", 15)
         n = self.conf.get("sample_size", 40)
         for c in sorted(coins, key=lambda c: (bool(c.get("sample_txs")), -(c.get("ath_mcap") or 0))):
             if budget <= 0:
@@ -70,7 +79,7 @@ class SolanaRpcTxs(Source):
                 for i in range(0, len(batch), self.conf.get("batch", 20)):
                     res = self.rpc(batch[i:i + self.conf.get("batch", 20)])
                     for r in res if isinstance(res, list) else []:
-                        t = parse_tx(r.get("result"), c["mint"])
+                        t = parse_tx(r.get("result"), c["mint"], pool)
                         if t:
                             trades.append(t)
             except Exception:

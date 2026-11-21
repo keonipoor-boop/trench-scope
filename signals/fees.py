@@ -8,7 +8,7 @@ class Fees(Signal):
 
     def evaluate(self, coin):
         fees, ath, fvp = coin.get("fees_sol"), coin.get("ath_mcap") or 0, coin.get("fee_volume_pct")
-        if (fees is None or not ath) and coin.get("organic_score") is not None:
+        if (fees is None or not ath) and (coin.get("organic_score") or 0) > 0:  # 0 = Jupiter hasn't scored it
             # no Helius fee sample: fall back to Jupiter's organic-volume score (also anti-wash)
             org, need = coin["organic_score"], self.conf.get("min_organic_score", 25)
             ovp = coin.get("organic_volume_pct")
@@ -23,7 +23,7 @@ class Fees(Signal):
         ok_a = per100k >= need_a
         ok_b = fvp is None or fvp >= need_b
         score = 0.5 * min(1, per100k / (need_a * 2)) + 0.5 * (min(1, (fvp or need_b) / (need_b * 3)))
-        note = f"{per100k:.2f} SOL fees per $100k ATH (min {need_a})"
+        note = f"{per100k:.2f} SOL fees (priority+tips+terminal) per $100k ATH (min {need_a})"
         if fvp is not None:
             note += f", fee/vol {fvp:.2f}% (min {need_b}%)"
         if not (ok_a and ok_b):

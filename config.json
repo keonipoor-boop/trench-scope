@@ -15,7 +15,8 @@
     "max_ohlcv_per_scan": 60,
     "max_deep_per_scan": 40,
     "total_supply": 1000000000,
-    "cheap_scope": "candidates"
+    "cheap_scope": "candidates",
+    "min_runner_holders": 50
   },
 
   "scheduler": {
@@ -27,7 +28,7 @@
   "signals": {
     "holders":   {"enabled": true, "required": true,  "min": 300},
     "top10":     {"enabled": true, "required": true,  "max_pct": 35},
-    "fees":      {"enabled": true, "required": true,  "min_sol_per_100k_ath": 2.0, "min_fee_volume_pct": 0.25, "min_organic_score": 25},
+    "fees":      {"enabled": true, "required": true,  "min_sol_per_100k_ath": 2.0, "min_fee_volume_pct": 0.3, "min_organic_score": 25},
     "kols":      {"enabled": true, "required": false, "min": 1},
     "traders":   {"enabled": true, "required": true,  "min": 150},
     "wash":      {"enabled": true, "required": true, "max_round_trip_pct": 60, "max_symmetric_pct": 35,
@@ -92,7 +93,7 @@
     "geckoterminal": {"enabled": true, "base_url": "https://api.geckoterminal.com/api/v2", "timeframe": "hour", "aggregate": 1, "limit": 200, "rate_per_min": 24},
     "helius_holders": {"enabled": true, "max_pages": 10, "rate_per_min": 120, "exclude_owners": []},
     "helius_txs": {"enabled": true, "sample_size": 100, "sample_pages": 3, "rate_per_min": 120},
-    "solana_rpc": {"enabled": true, "rpc_url": "https://api.mainnet-beta.solana.com", "coins_per_scan": 8,
+    "solana_rpc": {"enabled": true, "rpc_url": "https://api.mainnet-beta.solana.com", "coins_per_scan": 15,
                    "sample_size": 40, "batch": 20, "rate_per_min": 30},
     "chart_shape": {"enabled": true, "aggregate": 1, "limit": 1000, "coins_per_scan": 12},
     "kols": {"enabled": true, "tx_limit": 100, "rate_per_min": 120},

@@ -16,6 +16,15 @@ KNOWN_POOL_OWNERS = {
     "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL",  # Raydium CPMM authority
     "39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg",  # Pump fee/migration account
 }
+# pump.fun protocol fee recipients: their cut is a fixed % of volume, so it says nothing about
+# whether buyers are real. Everything else a trader pays on top of the swap counts as "fees".
+PUMP_FEE_ACCOUNTS = {
+    "CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM", "62qc2CNXwrYqQScmEdiZFFAnJR262PxWEuNQtxfafNgV",
+    "7VtfL8fvgNfhz17qKRMjzQEXgbdpnHHHQRh54R9jP2RJ", "7hTckgnGnLQR6sdH7YkqFTAA7VwTfYFaZ6EhEsU3saCX",
+    "9rPYyANsfQZw3DnDmKE3YCQF5E8oD89UXoHn9JFEhJUz", "AVmoTthdrX6tKt4nDjco2D775W2YK3sDhxPcMmzUAmTY",
+    "FWsW1xNtWscwNmKv6wVsU1iTzRN6wmmk3MjxRP5tT7hz", "G5UZAVbAf46s7cKWoyKu8kYTip9DGTpbLZ2qa9Aq69dP",
+}
+TOKEN_ACCOUNT_RENT = 2_039_280  # lamports to open a token account: not a fee
 JITO_TIP_ACCOUNTS = {
     "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5", "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
     "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY", "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
@@ -103,7 +112,7 @@ class HeliusTxs(Source):
         return r if isinstance(r, list) else []
 
     @staticmethod
-    def to_trades(txs: list[dict], mint: str) -> list[dict]:
+    def to_trades(txs: list[dict], mint: str, pool: str | None = None) -> list[dict]:
         out = []
         for t in txs:
             if t.get("transactionError"):
@@ -120,8 +129,14 @@ class HeliusTxs(Source):
             if not side:
                 continue
             fee = (t.get("fee") or 0) / LAMPORTS  # base + priority
+            # tips + trading-terminal fees: SOL the payer sends to plain wallets that aren't the pool,
+            # token accounts, pump's protocol fee wallets, or new-account rent (matches Axiom's "F")
+            token_accts = {tb.get("tokenAccount") for a in t.get("accountData") or []
+                           for tb in a.get("tokenBalanceChanges") or []}
+            skip = {payer, pool, None} | PUMP_FEE_ACCOUNTS | token_accts
             tip = sum((nt.get("amount") or 0) for nt in t.get("nativeTransfers") or []
-                      if nt.get("toUserAccount") in JITO_TIP_ACCOUNTS) / LAMPORTS
+                      if nt.get("fromUserAccount") == payer and nt.get("toUserAccount") not in skip
+                      and nt.get("amount") != TOKEN_ACCOUNT_RENT) / LAMPORTS
             change = next((a.get("nativeBalanceChange") or 0 for a in t.get("accountData") or []
                            if a.get("account") == payer), 0) / LAMPORTS
             sol = (-change - fee - tip) if side == "buy" else (change + fee + tip)
@@ -146,7 +161,7 @@ class HeliusTxs(Source):
             except Exception:
                 if not txs:
                     continue
-            feats = trade_features(self.to_trades(txs, c["mint"]))
+            feats = trade_features(self.to_trades(txs, c["mint"], pool))
             if feats.get("sample_txs", 0) >= 10:
                 out[c["mint"]] = to_update(c, feats)
         return out

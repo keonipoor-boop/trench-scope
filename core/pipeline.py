@@ -45,7 +45,9 @@ def derive(c: dict, thr: float):
                         float(c.get("usd_market_cap") or 0))
     if c.get("ts_100k") and c.get("created_ts"):
         c["time_to_100k_min"] = max(0, round((c["ts_100k"] - c["created_ts"]) / 60, 1))
-    c["is_runner"] = c["ath_mcap"] >= thr
+    h = c.get("holders")
+    min_h = get_config().get_path("pipeline.min_runner_holders", 50)
+    c["is_runner"] = c["ath_mcap"] >= thr and (h is None or h >= min_h)  # 20 holders can't make a real $100k run
 
 
 def template_why(c: dict) -> list[str]:
