@@ -255,11 +255,25 @@ class DemoDeep(_DemoBase):
                     kols.append({"name": name, "twitter": f"https://x.com/{name.lower()}",
                                  "ts": launch + int(r.expovariate(1 / 2400))})
                 kols.sort(key=lambda k: k["ts"])
+            # fake-chart forensics (see core/forensics.py)
+            botted = s["fake"] == "wash"
+            forensic = {
+                "round_trip_pct": round(r.uniform(65, 90) if botted else r.uniform(10, 45), 1),
+                "symmetric_wallet_pct": round(r.uniform(40, 70) if botted else r.uniform(2, 20), 1),
+                "size_mode_pct": round(r.uniform(40, 85) if botted else r.uniform(2, 18), 1),
+                "txs_per_trader": round(r.uniform(9, 25) if botted else r.uniform(1.3, 4), 2),
+                "interval_cv": round(r.uniform(0.05, 0.3) if botted else r.uniform(0.8, 3), 2),
+                "staircase_score": round(r.uniform(0.68, 0.95) if botted else r.uniform(0.08, 0.45), 2),
+                "green_ratio": round(r.uniform(0.88, 0.99) if botted else r.uniform(0.5, 0.7), 2),
+                "max_pullback_pct": round(r.uniform(0, 6) if botted else r.uniform(18, 45), 1),
+                "cliff_dump": botted or r.random() < 0.15,
+            }
             mentions = int(scale * r.uniform(5, 40))
             big = s["cat"] == "celeb" or r.random() < 0.15 * min(scale, 3)
             twl = s["twitter"] or ""
             author = twl.split("/")[3].lower() if "/status/" in twl else None
             out[c["mint"]] = {
+                **forensic,
                 "holders": holders, "top10_pct": round(top10, 1), "unique_traders": traders,
                 "fees_sol": round(fees_per * scale, 2), "fee_volume_pct": round(fvp, 3),
                 "sample_txs": 100, "sample_fees_sol": round(fvp / 100 * 40, 4), "sample_volume_sol": 40.0,

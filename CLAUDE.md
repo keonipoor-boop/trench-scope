@@ -45,7 +45,9 @@ merges them (None never overwrites; `ath_mcap` only ever goes up). Common fields
 | usd_market_cap, volume_24h, txns_24h, pair_address, dex_url, liquidity_usd | dexscreener |
 | ath_mcap, ts_100k (→ time_to_100k_min) | geckoterminal (OHLCV) |
 | holders, top10_pct | helius_holders |
-| unique_traders, fees_sol, fee_volume_pct, sample_* | helius_txs |
+| unique_traders, fees_sol, fee_volume_pct, sample_*, round_trip_pct, symmetric_wallet_pct, size_mode_pct, txs_per_trader, interval_cv | helius_txs, or solana_rpc (free fallback) via core/forensics.trade_features |
+| staircase_score, green_ratio, step_cv, volume_cv, max_pullback_pct, wick_ratio, cliff_dump | chart_shape (1m candles) via core/forensics.chart_features |
+| holders, top10_pct, unique_traders, organic_score, organic_volume_pct | jupiter_tokens |
 | kols: [{name, twitter, ts}] | kols |
 | x_mentions, x_top_tweets, x_big_account, tweet_author, tweet_author_followers | twitter |
 | themes, is_runner, signals, is_real, primary_catalyst, catalysts, why, why_llm | pipeline |
@@ -58,7 +60,10 @@ merges them (None never overwrites; `ath_mcap` only ever goes up). Common fields
 3. **ohlcv** (`stage="ohlcv"`) — only candidates (ATH ≥ `ath_prefilter_usd` or graduated), re-checked every `ohlcv_refresh_min`. GeckoTerminal is rate limited to `rate_per_min` (28).
 4. **runners** — `ath_mcap ≥ runner_ath_usd`.
 5. **expensive** (`stage="expensive"`) — runners only, at most every `deep_refresh_min` (30), capped by `max_deep_per_scan`.
-6. **signals** → `is_real` (all `required` signals must pass; missing data = not real yet).
+6. **signals** → `is_real` (all `required` signals must pass; missing data = not real yet, unless the
+   signal sets `allow_missing: true`). Fake-chart checks: FEES (fees per $100k ATH, fee/volume, Jupiter organic
+   score fallback), WASH (round-trip wallets, buy/sell symmetry, same-size trades, trades per wallet, clockwork
+   timing; else volume per trader), CHART (staircase score + cliff dump). Logic lives in `core/forensics.py`.
 7. **catalysts** → highest-weight hit is primary; Claude writes `why_llm` (≤10 coins/scan) if a key is set, otherwise `why_template`.
 
 Each stage is wrapped in `AgentRun(...)`, so a failure is logged to THE TRACE, marks the agent red, and

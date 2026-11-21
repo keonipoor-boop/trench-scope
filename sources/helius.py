@@ -90,61 +90,65 @@ class HeliusHolders(Source):
 
 
 class HeliusTxs(Source):
+    """Swap sample via Helius enhanced transactions -> fees + wash forensics (core/forensics.py)."""
     name = "helius_txs"
     agent = "FEES"
     stage = "expensive"
     order = 20
     requires_env = ["HELIUS_API_KEY"]
 
-    def txs(self, address, limit):
-        r = self.http_get(api_url(f"/addresses/{address}/transactions?limit={min(limit, 100)}"))
+    def txs(self, address, limit, before=None):
+        q = f"/addresses/{address}/transactions?limit={min(limit, 100)}" + (f"&before={before}" if before else "")
+        r = self.http_get(api_url(q))
         return r if isinstance(r, list) else []
 
     @staticmethod
-    def analyze(txs: list[dict], pool: str, mint: str) -> dict:
-        traders, net_fee, tips, vol_sol, n = set(), 0, 0, 0.0, 0
+    def to_trades(txs: list[dict], mint: str) -> list[dict]:
+        out = []
         for t in txs:
             if t.get("transactionError"):
                 continue
-            touches = any(tt.get("mint") == mint for tt in t.get("tokenTransfers") or [])
-            if not touches:
-                continue
-            n += 1
-            if t.get("feePayer"):
-                traders.add(t["feePayer"])
-            net_fee += t.get("fee") or 0  # base + priority, lamports
-            for nt in t.get("nativeTransfers") or []:
-                if nt.get("toUserAccount") in JITO_TIP_ACCOUNTS:
-                    tips += nt.get("amount") or 0
-                if pool and pool in (nt.get("toUserAccount"), nt.get("fromUserAccount")):
-                    vol_sol += (nt.get("amount") or 0) / LAMPORTS
+            payer = t.get("feePayer")
+            side = None
             for tt in t.get("tokenTransfers") or []:
-                if tt.get("mint") == WSOL and pool and pool in (tt.get("toUserAccount"), tt.get("fromUserAccount")):
-                    vol_sol += float(tt.get("tokenAmount") or 0)
-        fees = (net_fee + tips) / LAMPORTS
-        return {"sample_txs": n, "sample_traders": len(traders), "sample_fees_sol": round(fees, 5),
-                "sample_tips_sol": round(tips / LAMPORTS, 5), "sample_volume_sol": round(vol_sol, 3),
-                "fee_volume_pct": round(fees / vol_sol * 100, 3) if vol_sol else None,
-                "avg_fee_sol": fees / n if n else None}
+                if tt.get("mint") != mint:
+                    continue
+                if tt.get("toUserAccount") == payer:
+                    side = "buy"
+                elif tt.get("fromUserAccount") == payer:
+                    side = "sell"
+            if not side:
+                continue
+            fee = (t.get("fee") or 0) / LAMPORTS  # base + priority
+            tip = sum((nt.get("amount") or 0) for nt in t.get("nativeTransfers") or []
+                      if nt.get("toUserAccount") in JITO_TIP_ACCOUNTS) / LAMPORTS
+            change = next((a.get("nativeBalanceChange") or 0 for a in t.get("accountData") or []
+                           if a.get("account") == payer), 0) / LAMPORTS
+            sol = (-change - fee - tip) if side == "buy" else (change + fee + tip)
+            out.append({"payer": payer, "side": side, "sol": max(0.0, sol), "fee_sol": fee, "tip_sol": tip,
+                        "ts": t.get("timestamp")})
+        return out
 
     def enrich(self, coins):
+        from core.forensics import to_update, trade_features
         out = {}
-        size = self.conf.get("sample_size", 100)
+        size, pages = self.conf.get("sample_size", 100), self.conf.get("sample_pages", 3)
         for c in coins:
-            pool = c.get("pair_address") or c.get("bonding_curve") or c.get("pool_address")
+            pool = c.get("pair_address") or c.get("pool_address") or c.get("bonding_curve")
+            txs, before = [], None
             try:
-                txs = self.txs(pool or c["mint"], size)
+                for _ in range(pages):
+                    batch = self.txs(pool or c["mint"], size, before)
+                    txs += batch
+                    if len(batch) < size:
+                        break
+                    before = batch[-1].get("signature")
             except Exception:
-                continue
-            a = self.analyze(txs, pool, c["mint"])
-            total_tx = max(c.get("txns_24h") or 0, a["sample_txs"])
-            upd = dict(a)
-            if a["avg_fee_sol"]:
-                upd["fees_sol"] = round(a["avg_fee_sol"] * total_tx, 3)  # lifetime estimate
-            # unique traders: extrapolate sample ratio onto total txns
-            if a["sample_txs"]:
-                upd["unique_traders"] = int(a["sample_traders"] / a["sample_txs"] * total_tx)
-            out[c["mint"]] = upd
+                if not txs:
+                    continue
+            feats = trade_features(self.to_trades(txs, c["mint"]))
+            if feats.get("sample_txs", 0) >= 10:
+                out[c["mint"]] = to_update(c, feats)
         return out
 
     def doctor(self):

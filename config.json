@@ -29,7 +29,11 @@
     "top10":     {"enabled": true, "required": true,  "max_pct": 35},
     "fees":      {"enabled": true, "required": true,  "min_sol_per_100k_ath": 2.0, "min_fee_volume_pct": 0.25, "min_organic_score": 25},
     "kols":      {"enabled": true, "required": false, "min": 1},
-    "traders":   {"enabled": true, "required": true,  "min": 150}
+    "traders":   {"enabled": true, "required": true,  "min": 150},
+    "wash":      {"enabled": true, "required": true, "max_round_trip_pct": 60, "max_symmetric_pct": 35,
+                  "max_same_size_pct": 35, "max_trades_per_trader": 8, "min_interval_cv": 0.35,
+                  "max_volume_per_trader": 3000},
+    "chart":     {"enabled": true, "required": true, "allow_missing": true, "max_staircase": 0.65, "cliff_staircase": 0.5}
   },
 
   "catalysts": {
@@ -87,7 +91,10 @@
     "dexscreener": {"enabled": true, "base_url": "https://api.dexscreener.com", "batch": 30, "rate_per_min": 250},
     "geckoterminal": {"enabled": true, "base_url": "https://api.geckoterminal.com/api/v2", "timeframe": "hour", "aggregate": 1, "limit": 200, "rate_per_min": 24},
     "helius_holders": {"enabled": true, "max_pages": 10, "rate_per_min": 120, "exclude_owners": []},
-    "helius_txs": {"enabled": true, "sample_size": 100, "rate_per_min": 120},
+    "helius_txs": {"enabled": true, "sample_size": 100, "sample_pages": 3, "rate_per_min": 120},
+    "solana_rpc": {"enabled": true, "rpc_url": "https://api.mainnet-beta.solana.com", "coins_per_scan": 8,
+                   "sample_size": 40, "batch": 20, "rate_per_min": 30},
+    "chart_shape": {"enabled": true, "aggregate": 1, "limit": 1000, "coins_per_scan": 12},
     "kols": {"enabled": true, "tx_limit": 100, "rate_per_min": 120},
     "twitter": {"enabled": true, "base_url": "https://api.x.com/2", "max_results": 50, "rate_per_min": 30},
     "demo": {"enabled": false, "launches_per_10min": 10, "seed": 1337, "scan_every_min": 1}
