@@ -31,7 +31,7 @@ for c in db.coins("is_runner=1", order="ath_mcap DESC", limit=25):
     print(f"  ${c.get('symbol'):<10} ATH {c['ath_mcap']:>12,.0f}  MC {c.get('usd_market_cap') or 0:>12,.0f}  "
           f"age {(time.time() - c['created_ts']) / 3600:5.1f}h  real={c.get('is_real')}  {c.get('primary_catalyst')}  "
           f"holders={c.get('holders')} top10={c.get('top10_pct')} org={c.get('organic_score')} "
-          f"fees={c.get('fees_sol')} feevol%={c.get('fee_volume_pct')} rt%={c.get('round_trip_pct')} "
+          f"paid%={c.get('fee_paying_volume_pct')} big={c.get('sample_big_trades')} feevol%={c.get('fee_volume_pct')} rt%={c.get('round_trip_pct')} "
           f"same%={c.get('size_mode_pct')} tpw={c.get('txs_per_trader')} stair={c.get('staircase_score')} "
           f"cliff={c.get('cliff_dump')} fails={[k for k, v in (c.get('signals') or {}).items() if v.get('passed') is False]}")
 by = {}
