@@ -5,16 +5,27 @@ from __future__ import annotations
 from sources.base import Source
 
 
-def sane_ath(rows) -> float:
-    """Highest price, ignoring broken wicks: a candle's high counts up to 10x its open/close,
-    and candles whose close is >50x the median close are dropped."""
+def sane_ath(rows, supply: float = 1e9) -> float:
+    """Highest believable price. Ignores dust trades (tiny-volume candles), broken wicks
+    (high counts up to 10x the candle's open/close), closes >50x the median, and any peak
+    implying a market cap above 100x everything ever traded in the window."""
+    if not rows:
+        return 0.0
+    total_vol = sum((r[5] if len(r) > 5 else 0) or 0 for r in rows)
     closes = sorted(r[4] for r in rows if r[4])
     med = closes[len(closes) // 2] if closes else 0
+    min_vol = max(200.0, 0.002 * total_vol)
     best = 0.0
-    for _, o, h, _l, cl, *_ in rows:
+    for r in rows:
+        o, h, cl = r[1], r[2], r[4]
+        v = (r[5] if len(r) > 5 else 0) or 0
+        if total_vol and v < min_vol:
+            continue
         if med and cl > med * 50:
             continue
         best = max(best, min(h, 10 * max(o, cl)))
+    if total_vol and best * supply > 100 * total_vol:
+        best = min(best, 100 * total_vol / supply)
     return best
 
 
@@ -49,9 +60,10 @@ class GeckoTerminal(Source):
                 continue
             if not rows:
                 continue
-            ath = sane_ath(rows) * supply
+            ath = sane_ath(rows, supply) * supply
             upd = {"ohlcv_ath": ath, "ath_mcap": ath}
-            hit = next((r for r in rows if min(r[2], 10 * max(r[1], r[4])) * supply >= thr), None)
+            peak = ath / supply
+            hit = next((r for r in rows if min(r[2], 10 * max(r[1], r[4]), peak) * supply >= thr), None) if ath >= thr else None
             if hit:
                 upd["ts_100k"] = int(hit[0])
             out[c["mint"]] = upd

@@ -7,6 +7,11 @@ import httpx
 
 GT = "https://api.geckoterminal.com/api/v2"
 URLS = [
+    "https://lite-api.jup.ag/tokens/v2/recent",
+    "https://lite-api.jup.ag/tokens/v2/toptraded/24h?limit=100",
+    "https://lite-api.jup.ag/tokens/v2/toptrending/24h?limit=100",
+    "https://lite-api.jup.ag/tokens/v2/search?query=8fWsV1u1SYcN358tSA6dyTjfpmaQTziftcHwKBFSpump",
+    "https://datapi.jup.ag/v1/pools/gems?",
     f"{GT}/networks/solana/dexes?page=1",
     f"{GT}/networks/solana/dexes?page=2",
     f"{GT}/networks/solana/dexes/pumpswap/pools?page=1&sort=h24_volume_usd_desc",
@@ -26,7 +31,7 @@ for u in URLS:
     try:
         r = httpx.get(u, headers=H, timeout=20)
         body = r.text
-        print(f"\n### {r.status_code} {u}\n{body[:1500]}")
+        print(f"\n### {r.status_code} {u} len={len(body)}\n{body[:2500]}")
     except Exception as e:
         print(f"\n### ERR {u} {e}")
 
