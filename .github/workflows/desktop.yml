@@ -4,6 +4,7 @@ name: desktop-app
 on:
   push:
     branches: [main]
+    paths-ignore: [".github/workflows/live-check.yml", "scripts/**", "docs/**", "**.md"]
   workflow_dispatch:
 
 permissions:

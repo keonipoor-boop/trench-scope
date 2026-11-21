@@ -1,0 +1,26 @@
+# Manual live diagnostic: Actions -> live-check -> Run workflow. Runs a real scan against
+# pump.fun / DexScreener / GeckoTerminal and reports whether the given tickers were found.
+name: live-check
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Tickers to look up (space separated)"
+        default: "PENNY"
+      days:
+        description: "Lookback days"
+        default: "2"
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python run.py doctor || true
+      - run: python scripts/live_check.py ${{ inputs.symbols }}
+        env:
+          DAYS: ${{ inputs.days }}
