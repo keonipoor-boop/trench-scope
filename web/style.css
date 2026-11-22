@@ -68,11 +68,11 @@ button { font: inherit; }
 .statrow span { display: block; font-size: 9px; letter-spacing: .1em; color: var(--dim); }
 .statrow b { font-size: 15px; color: var(--green); }
 .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: end; height: 120px; margin-top: 6px; }
-.bar { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; position: relative; }
+.bar { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; position: relative; min-width: 0; }
 .bar .seg { width: 100%; border-radius: 2px 2px 0 0; }
 .bar .seg.g { background: linear-gradient(180deg, #39ff88, #1b7a45); box-shadow: 0 0 10px #39ff8866; }
 .bar .seg.r { background: linear-gradient(180deg, #ff4d6d, #7a1b2e); border-radius: 0; }
-.bar .lbl { font-size: 9px; color: var(--dim); text-align: center; margin-top: 3px; }
+.bar .lbl { font-size: 9px; white-space: nowrap; overflow: hidden; color: var(--dim); text-align: center; margin-top: 3px; }
 .bar .n { font-size: 10px; color: var(--white); text-align: center; }
 
 /* tape */
@@ -252,3 +252,15 @@ dialog h3 { margin: 0 0 12px; letter-spacing: .12em; font-size: 13px; color: var
   font: 700 11px var(--mono); letter-spacing: .1em; }
 .set-actions #set-save { border-color: var(--cyan); color: var(--cyan); }
 .dexchart { width: 100%; height: 300px; border: 1px solid var(--line); border-radius: 4px; background: #000; }
+
+/* timeframe bar */
+.tfbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; padding: 6px 16px;
+  background: #04060af0; border-bottom: 1px solid var(--line); backdrop-filter: blur(4px); flex-wrap: wrap; }
+.tf-label { font-weight: 800; letter-spacing: .12em; font-size: 10px; color: var(--white); flex: none; }
+.tf-btns { display: flex; border: 1px solid var(--faint); border-radius: 5px; overflow-x: auto; max-width: 100%; }
+.tf-btns button { background: transparent; border: 0; border-right: 1px solid var(--line); color: var(--dim); cursor: pointer;
+  font: 700 11px var(--mono); letter-spacing: .06em; padding: 4px 10px; white-space: nowrap; }
+.tf-btns button:last-child { border-right: 0; }
+.tf-btns button:hover { color: var(--white); background: #ffffff08; }
+.tf-btns button[aria-selected="true"] { color: #000; background: var(--cyan); box-shadow: 0 0 12px #22e6ff88; }
+.tf-note { color: var(--dim); font-size: 10px; letter-spacing: .06em; }

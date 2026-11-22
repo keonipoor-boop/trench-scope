@@ -18,6 +18,11 @@
   <button class="gear" id="btn-settings" title="Settings">⚙ SETTINGS</button>
 </div>
 <div class="banner" id="banner" hidden></div>
+<nav class="tfbar" aria-label="Timeframe">
+  <span class="tf-label">◆ TIMEFRAME</span>
+  <div class="tf-btns" id="tf" role="tablist"></div>
+  <span class="tf-note" id="tfnote"></span>
+</nav>
 
 <dialog id="settings">
   <form method="dialog" id="settings-form">
@@ -38,10 +43,10 @@
 <main class="grid">
   <!-- RUNNER BOARD -------------------------------------------------------->
   <section class="panel p-green" id="board">
-    <header>◆ RUNNER BOARD <i>— seven days · every coin that cleared the bar</i><b class="live">LIVE</b></header>
+    <header>◆ RUNNER BOARD <i id="b-sub">— seven days · every coin that cleared the bar</i><b class="live">LIVE</b></header>
     <div class="board-top">
       <div>
-        <div class="kicker">RUNNERS · 7D</div>
+        <div class="kicker" id="b-label">RUNNERS · 7D</div>
         <div class="bignum" id="b-runners">—</div>
         <div class="pill-up" id="b-today">—</div>
       </div>
@@ -57,7 +62,7 @@
       <div><span>MED TTT 100K</span><b id="b-ttt">—</b></div>
       <div><span>HIT RATE</span><b id="b-hit">—</b></div>
     </div>
-    <div class="kicker">RUNNERS PER DAY <i class="dim">— green real · red failed checks</i></div>
+    <div class="kicker"><span id="b-binlabel">RUNNERS PER DAY</span> <i class="dim">— green real · red failed checks</i></div>
     <div class="bars" id="b-days"></div>
   </section>
 
@@ -99,7 +104,7 @@
 
   <!-- ROTATION -------------------------------------------------------------->
   <section class="panel p-orange" id="rotation">
-    <header>◆ NARRATIVE ROTATION <i>— share vs momentum · tail = daily → hourly</i></header>
+    <header>◆ NARRATIVE ROTATION <i id="rot-sub">— share vs momentum · tail = daily → hourly</i></header>
     <canvas id="rotcanvas"></canvas>
   </section>
 

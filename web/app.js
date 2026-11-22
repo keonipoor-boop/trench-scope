@@ -9,11 +9,31 @@ const CAT = { celebrity_tweet: "CELEB TWEET", tweet_play: "TWEET PLAY", communit
 const AGENT_INFO = { SCOUT: "discovery", HOLDERS: "holders", KOLS: "kol wallets", FEES: "fees/traders", CATALYST: "why it ran", THESIS: "narrative" };
 const AC = window.Synapse.AGENT_COLORS;
 let STATE = null, lastEvent = 0, selected = null, seenTape = new Set();
+// ---- timeframe (chart-style TF bar) -------------------------------------------------
+const TFS = ["7D", "3D", "24H", "12H", "6H", "4H", "1H", "30M", "15M", "5M", "1M", "30S", "15S", "1S"];
+const TF_SECS = { D: 86400, H: 3600, M: 60, S: 1 };
+const tfSecs = (tf) => parseInt(tf) * TF_SECS[tf.slice(-1)];
+const tfWords = (s) => s >= 86400 ? `${s / 86400}D` : s >= 3600 ? `${s / 3600}H` : s >= 60 ? `${Math.round(s / 60)}M` : `${s}S`;
+let TF = "7D";
+try { const saved = localStorage.getItem("tf"); if (TFS.includes(saved)) TF = saved; } catch { /* storage blocked */ }
+let refreshTimer = null;
+function scheduleRefresh() {  // short windows move fast: refresh every 3s at 5M and below
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(refresh, tfSecs(TF) <= 300 ? 3000 : 15000);
+}
+function renderTfBar() {
+  $("#tf").innerHTML = TFS.map(t => `<button role="tab" aria-selected="${t === TF}" data-tf="${t}">${t}</button>`).join("");
+  document.querySelectorAll("#tf button").forEach(b => b.onclick = () => {
+    TF = b.dataset.tf; try { localStorage.setItem("tf", TF); } catch { /* ignore */ }
+    seenTape = new Set(); renderTfBar(); scheduleRefresh(); refresh();
+  });
+  $("#tfnote").textContent = `coins that crossed $100k in the last ${TF} · refresh every ${tfSecs(TF) <= 300 ? "3s" : "15s"}`;
+}
 
 async function j(url, opt) { const r = await fetch(url, opt); if (!r.ok) throw new Error(r.status); return r.json(); }
 
 async function refresh() {
-  try { STATE = await j("/api/state"); } catch (e) { $("#livewire").textContent = "backend unreachable: " + e; return; }
+  try { STATE = await j("/api/state?tf=" + encodeURIComponent(TF)); } catch (e) { $("#livewire").textContent = "backend unreachable: " + e; return; }
   renderTicker(); renderBoard(); renderTape(); renderSynapse(); renderAgents(); renderRotation(); renderHourly();
   $("#foot").textContent = `${STATE.mode.toUpperCase()} MODE${$("#foot").dataset.v ? " · v" + $("#foot").dataset.v : ""} · last scan ${STATE.last_scan ? ago(STATE.last_scan.ts) + " ago" : "never"}`;
   if (!selected && STATE.tape.length) openCoin(STATE.tape[0].mint);
@@ -23,9 +43,9 @@ function renderTicker() {
   const s = STATE.summary, d = STATE.daily, h = STATE.hourly, th = STATE.themes.daily;
   const shift = h && h.meta_shift;
   const items = [`<span class="live">◉ SIX AGENTS LIVE</span>`,
-    `<span>RUNNERS 7D <b>${s.runners}</b></span>`, `<span>REAL <b class="g">${s.real_pct}%</b></span>`,
-    `<span>HIT RATE <b>${s.hit_rate}%</b></span>`, `<span>24H LEADER <b class="g">${esc(th.leader || "—")}</b></span>`,
-    `<span>HOURLY LEADER <b class="${shift ? "m" : ""}">${esc(STATE.themes.hourly_leader || "—")}</b></span>`,
+    `<span>RUNNERS ${TF} <b>${s.runners}</b></span>`, `<span>REAL <b class="g">${s.real_pct}%</b></span>`,
+    `<span>HIT RATE <b>${s.hit_rate}%</b></span>`, `<span>${TF} LEADER <b class="g">${esc(th.leader || "—")}</b></span>`,
+    `<span>LAST ${tfWords(STATE.themes.tail_s)} LEADER <b class="${shift ? "m" : ""}">${esc(STATE.themes.hourly_leader || "—")}</b></span>`,
     shift ? `<span class="m">⚡ META SHIFT · ${esc(h.data.meta_shift.reason)}</span>` : "",
     `<span>MED TTT <b>${mins(s.median_ttt)}</b></span>`,
     ...STATE.tape.slice(0, 12).map(c => `<span>$${esc(c.symbol)} <b class="${c.is_real ? "g" : "r"}">${usd(c.ath_mcap)}</b> ${esc(CAT[c.primary_catalyst] || "")}</span>`),
@@ -41,11 +61,15 @@ function renderBoard() {
   const s = STATE.summary;
   $("#b-runners").textContent = s.runners;
   const today = s.per_day[s.per_day.length - 1];
-  $("#b-today").textContent = `▲ +${today.real + today.other} today`;
+  $("#b-today").textContent = `▲ +${today.real + today.other} in newest bar`;
+  $("#b-label").textContent = `RUNNERS · ${TF}`;
+  $("#b-sub").textContent = `— last ${TF} · every coin that cleared the bar`;
+  $("#b-binlabel").textContent = `RUNNERS PER ${tfWords(s.window_s / s.per_day.length).replace(/^1(?=[DHMS])/, "")} BAR`;
   $("#b-max").textContent = usd(s.max_ath); $("#b-launches").textContent = `${s.launches.toLocaleString()} launches`;
   $("#b-real").textContent = s.real_pct + "%"; $("#b-avg").textContent = usd(s.avg_ath);
   $("#b-ttt").textContent = mins(s.median_ttt); $("#b-hit").textContent = s.hit_rate + "%";
   const max = Math.max(1, ...s.per_day.map(d => d.real + d.other));
+  $("#b-days").style.gridTemplateColumns = `repeat(${s.per_day.length}, 1fr)`;
   $("#b-days").innerHTML = s.per_day.map(d => `<div class="bar" title="${d.launches} launches">
     <div class="n">${d.real + d.other}</div>
     <div class="seg r" style="height:${d.other / max * 85}%"></div><div class="seg g" style="height:${d.real / max * 85}%;order:-1"></div>
@@ -57,7 +81,7 @@ function renderTape() {
   if (!t.length) {
     const scout = STATE.agents.find(a => a.name === "SCOUT") || {};
     const msg = scout.status === "running" ? `scanning… ${esc(scout.detail || "")}<br><br><span class="dim">first scan takes ~5–10 min · watch THE TRACE below</span>`
-      : STATE.last_scan ? `no runners in the last ${STATE.mode === "demo" ? "7 days" : "window"} yet · next scan soon` : "waiting for the first scan…";
+      : STATE.last_scan ? `no coins crossed $100k in the last ${TF}${tfSecs(TF) < 86400 ? "<br><br><span class='dim'>try a longer timeframe</span>" : " yet · next scan soon"}` : "waiting for the first scan…";
     $("#book").innerHTML = `<div class="empty">${msg}</div>`; $("#tape-hdr").textContent = ""; return;
   }
   const max = Math.max(...t.map(c => c.ath_mcap || 0));
@@ -79,13 +103,16 @@ function renderTape() {
 function drawTapeChart() {
   const cv = $("#tapechart"), r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
   cv.width = r.width * dpr; cv.height = r.height * dpr; const g = cv.getContext("2d"); g.scale(dpr, dpr);
-  const W = r.width, H = r.height, pad = 34, now = Date.now() / 1000, span = 24 * 3600;
+  const W = r.width, H = r.height, pad = 34, now = Date.now() / 1000, span = tfSecs(TF);
   const cs = STATE.tape.filter(c => (c.ts_100k || c.created_ts) > now - span);
   const lo = Math.log10(1e5), hi = Math.log10(Math.max(2e5, ...cs.map(c => c.ath_mcap)) * 1.2);
   const X = ts => pad + (1 - (now - ts) / span) * (W - pad - 6), Y = v => H - 16 - (Math.log10(v) - lo) / (hi - lo) * (H - 26);
   g.font = "9px JetBrains Mono"; g.fillStyle = "#5d7183"; g.strokeStyle = "rgba(60,90,120,.15)";
   for (const v of [1e5, 3e5, 1e6, 3e6, 1e7]) { if (Math.log10(v) > hi) break; const y = Y(v); g.beginPath(); g.moveTo(pad, y); g.lineTo(W, y); g.stroke(); g.fillText(usd(v), 0, y + 3); }
-  for (let hrs = 24; hrs >= 0; hrs -= 6) g.fillText(hrs ? `-${hrs}h` : "now", X(now - hrs * 3600) - 10, H - 3);
+  for (let k = 4; k >= 0; k--) {  // 5 time ticks across the selected timeframe
+    const ago = span * k / 4;
+    g.fillText(k ? `-${tfWords(Math.round(ago)).toLowerCase()}` : "now", X(now - ago) - 10, H - 3);
+  }
   // "vwap" style line: rolling avg of log ATH
   g.strokeStyle = "rgba(34,230,255,.5)"; g.setLineDash([3, 3]); g.beginPath();
   const sorted = [...cs].sort((a, b) => (a.ts_100k || a.created_ts) - (b.ts_100k || b.created_ts)); let acc = [];
@@ -105,10 +132,10 @@ function renderSynapse() {
   const th = STATE.themes, d = th.daily;
   window.Synapse.update(th.themes, STATE.agents, th.hourly_leader);
   $("#syn-hdr").textContent = `${th.themes.filter(t => t.runners).length} active neurons`;
-  $("#synstats").innerHTML = `<div><span>24H LEADER</span><b class="g">${esc(d.leader || "—")}</b></div>
-    <div><span>RUNNERS 24H</span><b>${d.runners}</b></div><div><span>LAUNCHES</span><b>${d.launches.toLocaleString()}</b></div>
+  $("#synstats").innerHTML = `<div><span>${TF} LEADER</span><b class="g">${esc(d.leader || "—")}</b></div>
+    <div><span>RUNNERS ${TF}</span><b>${d.runners}</b></div><div><span>LAUNCHES</span><b>${d.launches.toLocaleString()}</b></div>
     <div><span>HIT RATE</span><b>${d.hit_rate}%</b></div><div><span>REAL</span><b class="g">${d.real_pct ?? "—"}%</b></div>
-    <div><span>AVG TTT</span><b>${mins(d.avg_ttt_min)}</b></div><div><span>1H LEADER</span><b class="m">${esc(th.hourly_leader || "—")}</b></div>`;
+    <div><span>AVG TTT</span><b>${mins(d.avg_ttt_min)}</b></div><div><span>LAST ${tfWords(th.tail_s)} LEADER</span><b class="m">${esc(th.hourly_leader || "—")}</b></div>`;
   $("#sources").innerHTML = STATE.sources.length ? STATE.sources.map(s => {
     const cls = s.ok ? "ok" : "bad";
     return `<div class="src ${cls}"><b>${esc(s.name)}</b><span class="st" style="color:${s.ok ? "#39ff88" : "#ff4d6d"}">${s.ok ? "● OK" : "● ERR"}</span>
@@ -146,6 +173,7 @@ function renderAgents() {
 }
 
 function renderRotation() {
+  $("#rot-sub").textContent = `— share vs momentum · tail = ${TF} → last ${tfWords(STATE.themes.tail_s)}`;
   const cv = $("#rotcanvas"), r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
   cv.width = r.width * dpr; cv.height = r.height * dpr; const g = cv.getContext("2d"); g.scale(dpr, dpr);
   const W = r.width, H = r.height, L = 34, B = 22;
@@ -305,4 +333,4 @@ loadMeta(); setInterval(loadMeta, 5 * 60 * 1000);
 
 window.Synapse.init($("#syncanvas"), $("#syntip"));
 refresh(); pollEvents();
-setInterval(refresh, 15000); setInterval(pollEvents, 3000);
+renderTfBar(); scheduleRefresh(); setInterval(pollEvents, 3000);

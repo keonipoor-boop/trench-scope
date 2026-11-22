@@ -144,6 +144,11 @@ cheap refresh. Words that spike in runners but belong to no theme surface as "em
   Needs `HELIUS_API_KEY`. Each wallet's last `sources.kols.tx_limit` swaps are pulled once per scan.
 - `data/celebrities.json`: lowercase X handles. A coin whose twitter link is a status by one of these → CELEBRITY TWEET.
 
+### Timeframes
+The dashboard's TIMEFRAME bar (7D … 1S) passes `?tf=` to `/api/state`. `api/server.py:TIMEFRAMES` lists them;
+runners count by when they crossed the bar (`ts_100k`, else launch), launches by launch time. Add a timeframe
+there and in `TFS` in web/app.js.
+
 ### A dashboard panel
 Add a `<section class="panel p-cyan" id="x">` in web/index.html, a grid-area in style.css, and a
 `renderX()` in app.js called from `refresh()`. Data comes from `/api/state`; add fields in
