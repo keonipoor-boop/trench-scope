@@ -59,7 +59,20 @@ def delete_kol(name: str):
     get_db().x("DELETE FROM kol_profiles WHERE name=?", (name,))
 
 
+_READY: set = set()  # (db, what) already set up in this process: reads never take the write lock
+
+
+def _once(what: str) -> bool:
+    key = (id(get_db()), what)
+    if key in _READY:
+        return False
+    _READY.add(key)
+    return True
+
+
 def ensure_table():
+    if not _once("profiles"):
+        return
     get_db().x("CREATE TABLE IF NOT EXISTS kol_profiles (name TEXT PRIMARY KEY, ts INTEGER, status TEXT, data TEXT)")
 
 
@@ -92,6 +105,8 @@ PARSER_VERSION = 3  # bump when trade parsing changes: stored histories are rebu
 
 
 def ensure_trade_tables():
+    if not _once("trades"):
+        return
     db = get_db()
     db.x("""CREATE TABLE IF NOT EXISTS kol_trades (wallet TEXT, sig TEXT, ts INTEGER, mint TEXT, side TEXT, tokens REAL,
             sol REAL, usd REAL, PRIMARY KEY (wallet, sig))""")

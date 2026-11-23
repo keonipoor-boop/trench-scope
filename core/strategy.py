@@ -16,7 +16,13 @@ from core.db import get_db
 from core.events import log
 
 
+_READY: set = set()
+
+
 def ensure_table():
+    if id(get_db()) in _READY:
+        return
+    _READY.add(id(get_db()))
     get_db().x("""CREATE TABLE IF NOT EXISTS kol_strategies (name TEXT, version INTEGER, ts INTEGER, checked_ts INTEGER,
                   spec TEXT, changes TEXT, PRIMARY KEY (name, version))""")
 

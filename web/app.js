@@ -404,7 +404,15 @@ const STYLE_COLORS = [["Sniper", "#22e6ff"], ["Scalper", "#39ff88"], ["Swing", "
   ["Whale", "#ffd23d"], ["hunter", "#ff3df2"], ["High-frequency", "#4dd0ff"], ["Generalist", "#f2f7ff"]];
 const styleColor = (style) => (STYLE_COLORS.find(([k]) => (style || []).some(s => s.includes(k))) || [0, "#c8d6e2"])[1];
 const PLANETS = new Map();  // name -> {el, ring, angle, speed, size}
-let ZOOMED = null, spaceT0 = performance.now(), HOVER = false, pausedAt = null;
+let ZOOMED = null, spaceT0 = performance.now(), HOVER = false, pausedAt = null, KOL_REQ = 0;
+let PTR = null;  // last pointer position over the solar system; the orbit pauses while it's on a planet or moon
+document.addEventListener("pointermove", (e) => { PTR = [e.clientX, e.clientY]; }, { passive: true });
+document.addEventListener("pointerleave", () => { PTR = null; });
+function pointerOnBody() {
+  if (!PTR) return false;
+  const el = document.elementFromPoint(PTR[0], PTR[1]);
+  return !!(el && el.closest && el.closest(".kol-planet, .kol-moon"));
+}
 
 function planetSize(k) { const n = k.summary.positions || 0; return Math.round(46 + Math.min(34, Math.sqrt(n) * 4)); }
 
@@ -448,7 +456,6 @@ async function loadKols() {
     if (!p) {
       const el = document.createElement("div"); el.className = "kol-planet"; el.dataset.name = k.name;
       el.onclick = (e) => { e.stopPropagation(); zoomTo(k.name); };
-      el.onmouseenter = () => { HOVER = true; }; el.onmouseleave = () => { HOVER = false; };
       host.appendChild(el);
       const ring = i % 3 + 1;
       p = { el, ring, angle: (i * 2.399) % (Math.PI * 2), speed: (0.10 / ring) * (i % 2 ? 1 : 0.8) };
@@ -490,7 +497,6 @@ function syncMoons(p, k, host) {
       el.className = "kol-moon"; el.dataset.planet = k.name;
       el.innerHTML = coinImg(h.image, h.symbol, false, h.mint) + `<span class="mn-age"></span>`;
       el.onclick = (e) => { e.stopPropagation(); SYS_MODE === "dev" ? openPop(h.mint, el) : holdingPop(k, h, el); };
-      el.onmouseenter = () => { HOVER = true; }; el.onmouseleave = () => { HOVER = false; };
       host.appendChild(el);
       return { el, h, phase: (i / Math.max(1, hs.length)) * Math.PI * 2 };
     });
@@ -514,7 +520,12 @@ function planetPos(p, t) {
 }
 
 function spaceFrame(now) {
-  // hovering a planet pauses the orbit so it's easy to click
+  try { spaceStep(now); } catch (e) { console.error("solar frame", e); }
+  requestAnimationFrame(spaceFrame);
+}
+function spaceStep(now) {
+  // hovering a planet pauses the orbit so it's easy to click (checked every frame, so it can never stick)
+  HOVER = !ZOOMED && pointerOnBody();
   if (HOVER && pausedAt == null) pausedAt = now;
   if (!HOVER && pausedAt != null) { spaceT0 += now - pausedAt; pausedAt = null; }
   const t = ((pausedAt ?? now) - spaceT0) / 1000;
@@ -535,7 +546,6 @@ function spaceFrame(now) {
       m.el.style.zIndex = Math.sin(a) > 0 ? (depth > 0 ? 4 : 2) : (depth > 0 ? 2 : 0);   // behind the planet on the far side
     });
   }
-  requestAnimationFrame(spaceFrame);
 }
 
 function zoomTo(name) {
@@ -552,7 +562,10 @@ function zoomTo(name) {
   $("#kolspace").style.transform = `translate(${tx}px, ${ty}px) scale(${z})`;
   st.classList.add("zoomed");
   const pre = cj((SYS_MODE === "dev" ? "/api/devs/" : "/api/kols/") + encodeURIComponent(name), 5000);  // fetch while the camera moves
-  setTimeout(() => { $("#koldetail").hidden = false; (SYS_MODE === "dev" ? openDev : openKol)(name, pre); }, 220);
+  pre.catch(() => {});
+  if (SYS_MODE !== "dev") kolLoading(name);
+  $("#koldetail").hidden = false;
+  (SYS_MODE === "dev" ? openDev : openKol)(name, pre);
 }
 
 function zoomOut() {
@@ -617,9 +630,36 @@ function mixHtml(obj) {
   return e.map(([k, v]) => `<div class="mix"><span>${esc(k)}</span><div class="track"><div class="fillb" style="width:${v / tot * 100}%"></div></div><span class="r">${Math.round(v / tot * 100)}%</span></div>`).join("") || '<div class="dim">—</div>';
 }
 
+// instant header from the list we already have, while the full profile loads
+function kolLoading(name) {
+  const k = (KOLS || []).find(x => x.name === name) || { name };
+  $("#koldetail-body").innerHTML = `<div class="kd-top">${pfpHtml(k.pfp, k.name, true)}<div style="min-width:0"><div class="kd-name">${esc(k.name)}</div>
+    <div class="tags" style="margin-top:6px">${tagsHtml(k.style, k.risk)}</div></div></div>
+    <div class="empty"><span class="spin">◌</span> loading profile…</div>`;
+}
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timed out")), ms))]);
+
 async function openKol(name, pre) {
   KOL_SEL = name;
-  let d; try { d = await (pre || j("/api/kols/" + encodeURIComponent(name))); } catch { return; }
+  const req = ++KOL_REQ;  // a slow answer for a KOL you've since left must not overwrite the one you're viewing
+  let d;
+  try { d = await withTimeout(pre || j("/api/kols/" + encodeURIComponent(name)), 15000); }
+  catch (e) {
+    if (req !== KOL_REQ || ZOOMED !== name) return;
+    _CACHE.delete("/api/kols/" + encodeURIComponent(name));
+    $("#koldetail-body").innerHTML = `<div class="empty">couldn't load ${esc(name)}'s profile (${esc(String(e.message || e))}).<br><button id="kd-retry">↻ TRY AGAIN</button></div>`;
+    $("#kd-retry").onclick = () => { kolLoading(name); openKol(name); };
+    return;
+  }
+  if (req !== KOL_REQ || (ZOOMED && ZOOMED !== name)) return;
+  try { renderKol(name, d); }
+  catch (e) {
+    console.error("KOL profile", e);
+    $("#koldetail-body").innerHTML = `<div class="empty">${esc(name)}'s profile has data this screen couldn't draw (${esc(String(e.message || e))}). It refreshes on the next research run.</div>`;
+  }
+}
+
+function renderKol(name, d) {
   const k = d.kol, p = d.profile || {}, s = p.stats || {}, x = p.x || {};
   $("#koldetail").dataset.status = p.status || "new";
   const pfp = k.twitter ? `/api/pfp/${encodeURIComponent(handleOf(k.twitter))}` : null;
