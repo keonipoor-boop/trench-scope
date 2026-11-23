@@ -72,10 +72,23 @@ class DB:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(SCHEMA)
         self.conn.commit()
+        self._tl = threading.local()
+
+    def _reader(self) -> sqlite3.Connection:
+        """Per-thread read connection: with WAL, the dashboard keeps reading while a scan writes
+        (previously every API read waited for the scan's write lock)."""
+        c = getattr(self._tl, "rconn", None)
+        if c is None:
+            c = sqlite3.connect(str(self.path), check_same_thread=False, timeout=30)
+            c.row_factory = sqlite3.Row
+            self._tl.rconn = c
+        return c
 
     def q(self, sql: str, args=()) -> list[sqlite3.Row]:
-        with self._lock:
-            return self.conn.execute(sql, args).fetchall()
+        if getattr(self._tl, "writing", 0):  # inside a write: read our own uncommitted rows
+            with self._lock:
+                return self.conn.execute(sql, args).fetchall()
+        return self._reader().execute(sql, args).fetchall()
 
     def x(self, sql: str, args=()) -> int:
         with self._lock:
@@ -123,17 +136,27 @@ class DB:
             sql += f" LIMIT {int(limit)}"
         return [self.row_to_coin(r) for r in self.q(sql, args)]
 
-    def upsert_many(self, coins: list[dict], merge: bool = True):
-        with self._lock:
-            for c in coins:
-                self.upsert_coin(c, merge=merge, commit=False)
-            self.conn.commit()
+    def upsert_many(self, coins: list[dict], merge: bool = True, chunk: int = 200):
+        # commit in chunks so readers see progress and the write lock is never held for long
+        for i in range(0, len(coins), chunk):
+            with self._lock:
+                self._tl.writing = getattr(self._tl, "writing", 0) + 1
+                try:
+                    for c in coins[i:i + chunk]:
+                        self.upsert_coin(c, merge=merge, commit=False)
+                    self.conn.commit()
+                finally:
+                    self._tl.writing -= 1
 
     def upsert_coin(self, coin: dict, merge: bool = True, commit: bool = True):
         """Insert or merge a coin dict. Missing/None values never overwrite stored ones."""
         mint = coin["mint"]
         with self._lock:
-            existing = self.get_coin(mint) if merge else None
+            self._tl.writing = getattr(self._tl, "writing", 0) + 1
+            try:
+                existing = self.get_coin(mint) if merge else None
+            finally:
+                self._tl.writing -= 1
             c = dict(existing or {})
             for k, v in coin.items():
                 if v is None:

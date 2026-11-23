@@ -150,7 +150,9 @@ the dashboard's KOL LAB edits them via `/api/kols`. For each KOL it pulls swaps 
 txs, else a small public-RPC sample; demo mode synthesizes), rebuilds positions, enriches tokens via Jupiter, then
 computes stats -> `archetype()` labels (style + risk) -> `describe()` (Claude if keyed, else template) and
 `side_wallet_insights()` (does a side wallet buy before main?). Profiles are stored in the `kol_profiles` table and
-refreshed every `kol_research.refresh_h` (1h) by the scheduler; open positions become `holdings` (the planet moons). Add a label: edit `archetype()`. Add a stat: `stats()`
+refreshed every `kol_research.refresh_h` (1h) by a background worker (`start_worker`, one KOL at a time,
+independent of scans); open positions become `holdings` (the planet moons); `pnl_periods()` gives lifetime/month/
+week/day PnL and `pnl_series` feeds the profile's PnL chart and the KOL LAB's PNL period bar. Add a label: edit `archetype()`. Add a stat: `stats()`
 plus a cell in `openKol()` (web/app.js). Profile pictures are served by `/api/pfp/<handle>` (server fetches + caches in the data dir:
 X API photo when `X_BEARER_TOKEN` is set, else unavatar.io; misses retried hourly). UI: a solar system
 (web/app.js `loadKols`/`spaceFrame`/`zoomTo`): KOLs orbit the core on 3 rings, ring colour = style
@@ -162,8 +164,10 @@ runners count by when they crossed the bar (`ts_100k`, else launch), launches by
 there and in `TFS` in web/app.js.
 
 ### Coin pictures + fake explanations
-- `/api/img/<mint>`: server fetches and caches each coin's picture (its own link, KOL holdings link, Jupiter icon,
-  DexScreener CDN). Only public https URLs are fetched (`_safe_img_url`): coin metadata is attacker-controlled.
+- `api/images.py` (async, cached in the data dir, misses retried hourly): `/api/img/<mint>` (coin's own link, KOL
+  holdings link, pump.fun metadata JSON image, Jupiter icon, DexScreener CDN, pump.fun image service),
+  `/api/pfp/<handle>` (X photo / unavatar), `/api/srcicon/<source>` (site favicons for SENSORY INPUT; add the
+  domain to `SOURCE_DOMAINS` for a new source). Only public https URLs are fetched (`safe_url`).
   Frontend: `coinImg(url, sym, big, mint)`; pass the mint so the proxy is used.
 - `core/forensics.explain_fake(coin)` -> `coin["fake"] = {headline, failed, reasons, metrics}` for coins with
   is_real False; shown by `fakeBlock()` in the coin popover, COIN FILE and the FEES agent list.
@@ -193,6 +197,10 @@ Add a `<section class="panel p-cyan" id="x">` in web/index.html, a grid-area in 
 
 - `created_ts` always keeps the earliest value any source reports (DexScreener's first pair = launch).
 - Non-runners older than lookback + 4 days are pruned each scan.
+
+- DB reads use per-thread read connections (WAL), so the dashboard never waits on a scan's writes; writes
+  commit in chunks of 200.
+- Popovers render instantly from cached/known data (`cj`/`cjTrack`/`peek` in app.js); hovering a coin prefetches it.
 
 ## Conventions
 - All thresholds in config.json; read via `self.conf` (plugins) or `get_config().get_path(...)`.

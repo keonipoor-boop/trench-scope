@@ -33,6 +33,18 @@ function renderTfBar() {
 }
 
 async function j(url, opt) { const r = await fetch(url, opt); if (!r.ok) throw new Error(r.status); return r.json(); }
+// short-lived cache for popover data: clicks render instantly, hovering prefetches
+const _CACHE = new Map();
+function cj(url, ttl = 20000) {
+  const hit = _CACHE.get(url);
+  if (hit && Date.now() - hit.t < ttl) return hit.p;
+  const p = j(url).catch(e => { _CACHE.delete(url); throw e; });
+  _CACHE.set(url, { t: Date.now(), p });
+  return p;
+}
+const peek = (url) => { const h = _CACHE.get(url); return h && h.done ? h.v : null; };
+function cjTrack(url, ttl) { const p = cj(url, ttl); const h = _CACHE.get(url); if (h && !h.tracked) { h.tracked = 1; p.then(v => { h.done = 1; h.v = v; }, () => {}); } return p; }
+const prefetchCoin = (mint) => cjTrack("/api/coin/" + encodeURIComponent(mint), 30000);
 
 async function refresh() {
   try { STATE = await j("/api/state?tf=" + encodeURIComponent(TF)); } catch (e) { $("#livewire").textContent = "backend unreachable: " + e; return; }
@@ -93,6 +105,7 @@ function renderTape() {
   $("#book").innerHTML = t.map(c => coinRowHtml(c, { sel: c.mint === selected, isNew: seenTape.size && !seenTape.has(c.mint) })).join("");
   t.forEach(c => seenTape.add(c.mint));
   document.querySelectorAll("#book .coin-row").forEach(el => {
+    el.onmouseenter = () => prefetchCoin(el.dataset.mint);
     el.onclick = (e) => { e.stopPropagation(); openCoin(el.dataset.mint); openPop(el.dataset.mint, el); };
     el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); } };
   });
@@ -136,8 +149,12 @@ function renderSynapse() {
     <div><span>HIT RATE</span><b>${d.hit_rate}%</b></div><div><span>REAL</span><b class="g">${d.real_pct ?? "—"}%</b></div>
     <div><span>AVG TTT</span><b>${mins(d.avg_ttt_min)}</b></div><div><span>LAST ${tfWords(th.tail_s)} LEADER</span><b class="m">${esc(th.hourly_leader || "—")}</b></div>`;
   $("#sources").innerHTML = STATE.sources.length ? STATE.sources.map(s => {
-    const cls = s.ok ? "ok" : "bad";
-    return `<div class="src ${cls}" data-src="${esc(s.name)}" tabindex="0" style="cursor:pointer"><b>${esc(s.name)}</b><span class="st" style="color:${s.ok ? "#39ff88" : "#ff4d6d"}">${s.ok ? "● OK" : "● ERR"}</span>
+    // a 429 (rate limit) with a recent success is "LIMITED" (slowing down), not broken
+    const limited = !s.ok && /429|rate|Too Many/i.test(s.last_error || "") && s.last_ok_ts && Date.now() / 1000 - s.last_ok_ts < 1800;
+    const cls = s.ok ? "ok" : limited ? "lim" : "bad";
+    const st = s.ok ? ["#39ff88", "● OK"] : limited ? ["#ffd23d", "● LIMITED"] : ["#ff4d6d", "● ERR"];
+    return `<div class="src ${cls}" data-src="${esc(s.name)}" tabindex="0" style="cursor:pointer" title="${esc(s.last_error || "")}">
+      <b><img class="srcico" src="/api/srcicon/${encodeURIComponent(s.name)}" alt="" onerror="this.remove()">${esc(s.name)}</b><span class="st" style="color:${st[0]}">${st[1]}</span>
       <span class="sub">${esc(s.agent)} · ${s.calls} calls · ${s.latency_ms ? Math.round(s.latency_ms) + "ms" : "—"}${!s.ok && s.last_error ? " · " + esc(s.last_error) : ""}</span></div>`;
   }).join("") : `<div class="src off"><b>no source calls yet</b><span></span><span class="sub">run a scan, or python run.py doctor</span></div>`;
   document.querySelectorAll("#sources .src[data-src]").forEach(el => el.onclick = (e) => { e.stopPropagation(); sourcePop(el.dataset.src, el); });
@@ -343,6 +360,22 @@ renderTfBar(); scheduleRefresh(); setInterval(pollEvents, 3000);
 
 // ---- KOL LAB ------------------------------------------------------------------------
 let KOLS = [], KOL_SEL = null, ADMIN_PW = "";
+const KPERIODS = [["lifetime", "LIFETIME"], ["month", "MONTH"], ["week", "WEEK"], ["day", "DAY"]];
+let KPERIOD = "lifetime";
+try { const v = localStorage.getItem("kperiod"); if (KPERIODS.some(x => x[0] === v)) KPERIOD = v; } catch { /* ignore */ }
+const solFmt = (v) => v == null ? "—" : (v > 0 ? "+" : "") + (Math.abs(v) >= 100 ? Math.round(v) : v) + " SOL";
+function renderKPeriodBar() {
+  let bar = $("#kperiod");
+  if (!bar) {
+    bar = document.createElement("div"); bar.id = "kperiod"; bar.className = "tf-btns kperiod";
+    $("#kolstage").appendChild(bar);
+  }
+  bar.innerHTML = `<span class="kp-l">PNL</span>` + KPERIODS.map(([k, l]) => `<button aria-selected="${k === KPERIOD}" data-k="${k}">${l}</button>`).join("");
+  bar.querySelectorAll("button").forEach(b => b.onclick = (e) => {
+    e.stopPropagation(); KPERIOD = b.dataset.k; try { localStorage.setItem("kperiod", KPERIOD); } catch { /* ignore */ }
+    renderKPeriodBar(); for (const p of PLANETS.values()) p.sig = null; loadKols(); if (ZOOMED) openKol(ZOOMED);
+  });
+}
 const dur = (s) => s == null ? "—" : s >= 86400 ? (s / 86400).toFixed(1) + "d" : s >= 3600 ? (s / 3600).toFixed(1) + "h" : s >= 60 ? Math.round(s / 60) + "m" : Math.round(s) + "s";
 const initials = (n) => esc((n || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?");
 const pfpHtml = (url, name, big) => url && /^(https:\/\/|\/api\/pfp\/)/.test(url)
@@ -365,6 +398,7 @@ function planetSize(k) { const n = k.summary.positions || 0; return Math.round(4
 async function loadKols() {
   try { KOLS = await j("/api/kols"); } catch { return; }
   $("#kolcount").textContent = `${KOLS.length} tracked`;
+  if (!$("#kperiod")) renderKPeriodBar();
   const host = $("#kolplanets"), names = new Set(KOLS.map(k => k.name));
   for (const [n, p] of PLANETS) if (!names.has(n)) {
     for (const el of [p.el, ...(p.moons || []).map(m => m.el)]) el.parentNode && el.parentNode.removeChild(el);
@@ -382,14 +416,16 @@ async function loadKols() {
       PLANETS.set(k.name, p);
     }
     p.size = planetSize(k);
-    const sig = JSON.stringify([k.status, k.style, k.pfp, k.summary]);
+    const sig = JSON.stringify([k.status, k.style, k.pfp, k.summary, k.periods, KPERIOD]);
     if (p.sig !== sig) {
       p.sig = sig;
       p.el.style.width = p.el.style.height = p.size + "px";
       p.el.style.setProperty("--pc", k.status === "running" ? "#22e6ff" : styleColor(k.style));
       p.el.classList.toggle("running", k.status === "running" || k.status === "new");
       p.el.title = `${k.name} · ${(k.style || []).join(", ") || k.status}`;
-      p.el.innerHTML = pfpHtml(k.pfp, k.name) + `<span class="pl-name">${esc(k.name)}${k.summary.win_rate != null ? " · " + k.summary.win_rate + "%" : ""}</span>`;
+      const per = (k.periods || {})[KPERIOD];
+      const pnl = per ? `<span style="color:${per.pnl_sol >= 0 ? "#7ee2a8" : "#ff9aa9"}"> · ${solFmt(per.pnl_sol)}</span>` : "";
+      p.el.innerHTML = pfpHtml(k.pfp, k.name) + `<span class="pl-name">${esc(k.name)}${pnl}</span>`;
     }
     syncMoons(p, k, host);
   });
@@ -448,7 +484,8 @@ function spaceFrame(now) {
     moons.forEach((m, i) => {
       const ms = 22, orbit = p.size * 0.5 * sc + 22 + (i % 2) * 14;  // two staggered moon lanes
       const a = m.phase + mt * (0.55 - (i % 2) * 0.15);
-      const mx = cx + Math.cos(a) * orbit * 1.15 - ms / 2, my = cy - 6 + Math.sin(a) * orbit * 0.55 - ms / 2;
+      // wide, flat orbit: moons swing out to the sides so they don't sit on the name label below the planet
+      const mx = cx + Math.cos(a) * orbit * 1.4 - ms / 2, my = cy - 8 + Math.sin(a) * orbit * 0.34 - ms / 2;
       m.el.style.transform = `translate(${mx}px, ${my}px)`;
       m.el.style.zIndex = Math.sin(a) > 0 ? (depth > 0 ? 4 : 2) : (depth > 0 ? 2 : 0);   // behind the planet on the far side
     });
@@ -469,7 +506,8 @@ function zoomTo(name) {
   const tx = (narrow ? W / 2 : W * 0.18) - cx * z, ty = (narrow ? H * 0.16 : H / 2) - cy * z;
   $("#kolspace").style.transform = `translate(${tx}px, ${ty}px) scale(${z})`;
   st.classList.add("zoomed");
-  setTimeout(() => { $("#koldetail").hidden = false; openKol(name); }, 450);
+  const pre = cj("/api/kols/" + encodeURIComponent(name), 5000);  // fetch while the camera moves
+  setTimeout(() => { $("#koldetail").hidden = false; openKol(name, pre); }, 220);
 }
 
 function zoomOut() {
@@ -487,14 +525,42 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && ZOOMED &
 $("#kolsun").onclick = (e) => { e.stopPropagation(); openKolForm(null); };
 requestAnimationFrame(spaceFrame);
 
+function pnlCard(p) {
+  const per = (p.periods || {})[KPERIOD];
+  if (!per) return "";
+  const lbl = KPERIODS.find(x => x[0] === KPERIOD)[1];
+  const start = { lifetime: 0, month: 30 * 86400, week: 7 * 86400, day: 86400 }[KPERIOD];
+  const now = Date.now() / 1000;
+  const rows = (p.pnl_series || []).filter(r => !start || r[0] >= now - start);
+  let cum = 0; const pts = rows.map(r => [r[1], (cum += r[2])]);
+  const W = 560, H = 90;
+  let path = "", area = "";
+  if (pts.length > 1) {
+    const t0 = pts[0][0], t1 = pts[pts.length - 1][0] || t0 + 1, lo = Math.min(0, ...pts.map(x => x[1])), hi = Math.max(0, ...pts.map(x => x[1]));
+    const X = (t) => (t - t0) / Math.max(1, t1 - t0) * W, Y = (v) => H - 6 - (v - lo) / Math.max(1e-9, hi - lo) * (H - 12);
+    path = pts.map((q, i) => (i ? "L" : "M") + X(q[0]).toFixed(1) + " " + Y(q[1]).toFixed(1)).join(" ");
+    area = `M0 ${Y(0).toFixed(1)} ` + pts.map(q => "L" + X(q[0]).toFixed(1) + " " + Y(q[1]).toFixed(1)).join(" ") + ` L${W} ${Y(0).toFixed(1)} Z`;
+    area = `<line x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}" stroke="#ffffff22" stroke-dasharray="3 4"/><path d="${area}" fill="${cum >= 0 ? "#39ff8818" : "#ff4d6d18"}"/>`;
+  }
+  const col = per.pnl_sol >= 0 ? "#7ee2a8" : "#ff9aa9";
+  return `<div class="pnl-card">
+    <div class="pnl-top"><div><span class="pnl-l">PNL · ${lbl}</span><b style="color:${col}">${solFmt(per.pnl_sol)}</b>
+      <span class="pnl-usd">${per.pnl_usd != null ? (per.pnl_usd >= 0 ? "+$" : "-$") + Math.abs(per.pnl_usd).toLocaleString() : ""}${per.roi_pct != null ? ` · ${per.roi_pct >= 0 ? "+" : ""}${per.roi_pct}% ROI` : ""}</span></div>
+      <div class="pnl-mini"><div><span>Win rate</span><b>${per.win_rate ?? "—"}${per.win_rate != null ? "%" : ""}</b></div><div><span>Coins</span><b>${per.positions}</b></div>
+        <div><span>Invested</span><b>${per.invested_sol} SOL</b></div><div><span>Best</span><b>${per.best ? "$" + esc(per.best.symbol) + " " + solFmt(per.best.pnl_sol) : "—"}</b></div></div></div>
+    ${path ? `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="pnl-svg">${area}<path d="${path}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`
+      : `<div class="dim" style="padding:8px 0">${per.positions ? "not enough closed trades to chart" : "no trades in this period"}</div>`}
+  </div>`;
+}
+
 function mixHtml(obj) {
   const e = Object.entries(obj || {}); const tot = e.reduce((a, [, v]) => a + v, 0) || 1;
   return e.map(([k, v]) => `<div class="mix"><span>${esc(k)}</span><div class="track"><div class="fillb" style="width:${v / tot * 100}%"></div></div><span class="r">${Math.round(v / tot * 100)}%</span></div>`).join("") || '<div class="dim">—</div>';
 }
 
-async function openKol(name) {
+async function openKol(name, pre) {
   KOL_SEL = name;
-  let d; try { d = await j("/api/kols/" + encodeURIComponent(name)); } catch { return; }
+  let d; try { d = await (pre || j("/api/kols/" + encodeURIComponent(name))); } catch { return; }
   const k = d.kol, p = d.profile || {}, s = p.stats || {}, x = p.x || {};
   $("#koldetail").dataset.status = p.status || "new";
   const pfp = k.twitter ? `/api/pfp/${encodeURIComponent(handleOf(k.twitter))}` : null;
@@ -505,12 +571,14 @@ async function openKol(name) {
       ${x.followers ? `<span class="dim"> · ${Number(x.followers).toLocaleString()} followers</span>` : ""}
       ${x.bio ? `<div class="kd-bio">${esc(x.bio)}</div>` : ""}
       <div class="tags" style="margin-top:6px">${tagsHtml(p.style, p.risk)}</div></div>
-    <div class="kd-actions"><button id="kd-re">${p.status === "running" ? "RESEARCHING…" : "RE-RESEARCH"}</button><button id="kd-edit">EDIT WALLETS</button><button id="kd-del">DELETE</button></div></div>`;
+    <div class="kd-actions"><span class="kd-auto">${p.status === "running" ? '<span class="spin">◌</span> researching now' : p.ts ? `auto-refreshed ${ago(p.ts)} ago<br>next in ${dur(Math.max(0, p.ts + 3600 - Date.now() / 1000))}` : "queued"}</span>
+      <button id="kd-re" title="Research now instead of waiting for the hourly refresh">↻ REFRESH NOW</button><button id="kd-edit">EDIT WALLETS</button><button id="kd-del">DELETE</button></div></div>`;
   if (!p.stats) {
     $("#koldetail-body").innerHTML = head + `<div class="empty">${p.status === "running" || p.status === "new" ? '<span class="spin">◌</span> researching wallets… this can take a few minutes (longer without a Helius key)' : p.status === "error" ? "research failed: see THE TRACE" : "not researched yet"}</div>`;
   } else {
     const pct = (v) => v == null ? "—" : v + "%";
     $("#koldetail-body").innerHTML = head + `
+    ${pnlCard(p)}
     <div class="kd-grid"><div>
       <div class="sec"><span>PROFILE</span><span>${p.description_by === "claude" ? "CLAUDE" : "TEMPLATE"} · ${esc(p.data_source || "")} · ${ago(p.ts)} ago</span></div>
       <div class="kd-desc">${esc(p.description)}</div>
@@ -634,7 +702,19 @@ function coinImg(url, sym, big, mint) {
 let POP_MINT = null, POP_ACTIONS = {}, POP_ANCHOR = null;
 async function openPop(mint, anchor, back) {
   const pop = $("#coinpop");
-  let c; try { c = await j("/api/coin/" + encodeURIComponent(mint)); } catch { return; }
+  const url = "/api/coin/" + encodeURIComponent(mint);
+  let c = peek(url);
+  if (!c) {
+    const row = [...(STATE?.tape || []), ...(LAST_LIST || [])].find(x => x.mint === mint);
+    POP_MINT = mint;
+    pop.innerHTML = `<div class="pop-head">${coinImg(row?.image, row?.symbol, true, mint)}<div style="min-width:0"><b>${esc(row?.name || row?.symbol || "Loading…")}</b>
+      <span>${row ? "$" + esc(row.symbol) + " · " : ""}loading details…</span></div><button class="pop-x" onclick="closePop()">✕</button></div>
+      ${row ? `<div class="pop-stats"><div><span>ATH</span><b>${usd(row.ath_mcap)}</b></div><div><span>Now</span><b>${usd(row.usd_market_cap)}</b></div></div>` : ""}
+      <div class="pop-sec" style="padding-bottom:12px"><span class="spin">◌</span> fetching…</div>`;
+    placePop(anchor);
+    try { c = await cjTrack(url, 30000); } catch { return; }
+    if (POP_MINT !== mint) return;  // user moved on
+  }
   POP_MINT = mint; POP_ANCHOR = anchor;
   const status = c.is_real === true ? '<span class="pill real">Real</span>' : c.is_real === false ? '<span class="pill fake">Fake</span>' : '<span class="pill wait">Analyzing</span>';
   const link = (u) => u && /^https?:\/\//.test(u) ? u : null;
@@ -709,13 +789,15 @@ function showPanel(html, anchor, wire) {
   POP_MINT = "panel"; POP_ACTIONS = {}; POP_ANCHOR = anchor;
   pop.innerHTML = html; placePop(anchor);
   pop.querySelectorAll(".coin-row").forEach(el => {
+    el.onmouseenter = () => prefetchCoin(el.dataset.mint);
     el.onclick = (e) => { e.stopPropagation(); openPop(el.dataset.mint, anchor, wire.back); };
     el.onkeydown = (e) => { if (e.key === "Enter") el.click(); };
   });
   wire.after && wire.after(pop);
 }
 
-const coinList = (cs, empty, subFn) => cs.length ? cs.map(c => coinRowHtml(c, { sub: subFn && subFn(c) })).join("")
+let LAST_LIST = [];
+const coinList = (cs, empty, subFn) => (LAST_LIST = cs, cs).length ? cs.map(c => coinRowHtml(c, { sub: subFn && subFn(c) })).join("")
   : `<div class="pop-sec" style="padding-bottom:10px">${empty}</div>`;
 const tfQ = () => "tf=" + encodeURIComponent(TF);
 
@@ -723,7 +805,13 @@ async function themePop(name, anchor) {
   const row = (STATE.themes.themes || []).find(t => t.theme === name) || {};
   const idx = STATE.themes.themes.findIndex(t => t.theme === name);
   const color = window.Synapse.PALETTE[idx % window.Synapse.PALETTE.length];
-  const d = await j(`/api/coins?${tfQ()}&theme=${encodeURIComponent(name)}&limit=40`);
+  const turl = `/api/coins?${tfQ()}&theme=${encodeURIComponent(name)}&limit=40`;
+  let d = peek(turl);
+  if (!d) {
+    showPanel(panelHtml({ dot: color, title: esc(name), sub: `${row.runners ?? "…"} runners in ${TF}`,
+      body: '<div class="pop-sec" style="padding-bottom:12px"><span class="spin">◌</span> loading coins…</div>' }), anchor, {});
+    try { d = await cjTrack(turl); } catch { return; }
+  }
   const mom = STATE.themes.daily.no_baseline ? "momentum n/a (no earlier data)" : `${row.momentum ?? 0}x momentum`;
   const sub = `${row.runners ?? d.count} runners in ${TF} · ${row.hit_rate ?? 0}% hit rate · ${mom}${row.real_pct != null ? ` · ${row.real_pct}% real` : ""}`;
   const back = { label: `Back to ${name}`, fn: () => themePop(name, anchor) };
@@ -735,12 +823,16 @@ async function themePop(name, anchor) {
 }
 
 async function agentPop(name, anchor) {
+  if (POP_MINT !== "panel" || !$("#coinpop").textContent.includes(name)) {
+    showPanel(panelHtml({ dot: window.Synapse.AGENT_COLORS[name], title: name, sub: esc(AGENT_BLURB[name] || ""),
+      body: '<div class="pop-sec" style="padding-bottom:12px"><span class="spin">◌</span> loading…</div>' }), anchor, {});
+  }
   const back = { label: `Back to ${name}`, fn: () => agentPop(name, anchor) };
   const a = (STATE.agents || []).find(x => x.name === name) || {};
   const head = (body, sub) => panelHtml({ dot: window.Synapse.AGENT_COLORS[name], title: name,
     sub: esc(sub || AGENT_BLURB[name]) + (a.status ? ` · <span style="color:#a9adb6">${esc(a.status)}${a.last_ts ? " " + ago(a.last_ts) + " ago" : ""}</span>` : ""), body });
   if (name === "SCOUT") {
-    const d = await j(`/api/coins?${tfQ()}&sort=new&limit=8`), ls = STATE.last_scan || {};
+    const d = await cjTrack(`/api/coins?${tfQ()}&sort=new&limit=8`), ls = STATE.last_scan || {};
     const src = (STATE.sources || []).map(s => `<button class="pop-item" data-src="${esc(s.name)}"><span class="ic" style="color:${s.ok ? "#7ee2a8" : "#ff9aa9"}">●</span>${esc(s.name)}<kbd>${s.calls} calls</kbd></button>`).join("");
     showPanel(head(`<div class="pop-stats"><div><span>Last scan</span><b>${ls.ts ? ago(ls.ts) + " ago" : "—"}</b></div><div><span>Took</span><b>${ls.seconds ?? "—"}s</b></div>
       <div><span>Coins seen</span><b>${ls.discovered ?? "—"}</b></div><div><span>Runners</span><b>${ls.runners ?? "—"}</b></div></div>
@@ -748,12 +840,12 @@ async function agentPop(name, anchor) {
       <div class="pop-sep"></div><div class="pop-sec">Sources</div>${src}`), anchor,
       { back, after: (pop) => pop.querySelectorAll("[data-src]").forEach(b => b.onclick = (e) => { e.stopPropagation(); sourcePop(b.dataset.src, anchor, back); }) });
   } else if (name === "HOLDERS") {
-    const [top, bad] = await Promise.all([j(`/api/coins?${tfQ()}&sort=holders&limit=8`), j(`/api/coins?${tfQ()}&fail=holders&limit=6`)]);
+    const [top, bad] = await Promise.all([cjTrack(`/api/coins?${tfQ()}&sort=holders&limit=8`), cjTrack(`/api/coins?${tfQ()}&fail=holders&limit=6`)]);
     const sub = (c) => `${c.holders != null ? Number(c.holders).toLocaleString() + " holders" : "holders —"} · top 10 ${c.top10_pct != null ? c.top10_pct + "%" : "—"}`;
     showPanel(head(`<div class="pop-sec">Most holders · ${TF}</div>${coinList(top.coins, "No runners in this timeframe.", sub)}
       <div class="pop-sep"></div><div class="pop-sec">Failing the holder checks</div>${coinList(bad.coins, "None failing.", sub)}`), anchor, { back });
   } else if (name === "FEES") {
-    const d = await j(`/api/coins?${tfQ()}&fail=any&limit=40`);
+    const d = await cjTrack(`/api/coins?${tfQ()}&fail=any&limit=40`);
     const fake = d.coins.filter(c => c.fails.some(f => ["fees", "wash", "chart"].includes(f.key))).slice(0, 15);
     const sub = (c) => c.fake_headline || c.fails.filter(f => ["fees", "wash", "chart"].includes(f.key)).map(f => f.note).join(" | ");
     showPanel(head(`<div class="pop-sec">Flagged as fake / botted · ${TF}</div>${coinList(fake, "Nothing flagged in this timeframe (or the fee/chart samples are still coming in).", sub)}`), anchor, { back });
@@ -762,7 +854,7 @@ async function agentPop(name, anchor) {
     showPanel(head(cats.map(c => `<button class="pop-item" data-cat="${esc(c.category)}"><span class="ic">◆</span>${esc(CAT_NICE[c.category] || c.label)}<kbd>${c.count}</kbd></button>`).join("")
       || '<div class="pop-sec">No runners classified in this timeframe yet.</div>', `Catalyst mix · ${TF} · click one to see its coins`), anchor,
       { back, after: (pop) => pop.querySelectorAll("[data-cat]").forEach(b => b.onclick = async (e) => {
-          e.stopPropagation(); const k = b.dataset.cat, d = await j(`/api/coins?${tfQ()}&catalyst=${encodeURIComponent(k)}&limit=30`);
+          e.stopPropagation(); const k = b.dataset.cat, d = await cjTrack(`/api/coins?${tfQ()}&catalyst=${encodeURIComponent(k)}&limit=30`);
           showPanel(panelHtml({ dot: window.Synapse.AGENT_COLORS.CATALYST, title: esc(CAT_NICE[k] || k), sub: `${d.count} runners · ${TF}`,
             body: `<button class="pop-item pop-back"><span class="ic">←</span>Back to CATALYST<kbd>⌫</kbd></button><div class="pop-sep"></div>${coinList(d.coins, "None.")}` }),
             anchor, { back: { label: `Back to ${CAT_NICE[k] || k}`, fn: () => b.onclick(e) }, after: (p2) => { p2.querySelector(".pop-back").onclick = (ev) => { ev.stopPropagation(); agentPop("CATALYST", anchor); }; POP_ACTIONS.backspace = () => agentPop("CATALYST", anchor); } });
@@ -776,7 +868,7 @@ async function agentPop(name, anchor) {
       ${h ? `<div class="pop-sep"></div><div class="pop-sec">Hourly meta ${sh && sh.shift ? '<span class="pill fake" style="background:#4a1f45;color:#ff9de6">META SHIFT</span>' : ""}</div>
       <div class="pop-why" style="padding-left:12px;white-space:pre-wrap">${esc(h.text)}</div>` : ""}` : '<div class="pop-sec">No thesis yet.</div>'), anchor, { back });
   } else if (name === "KOLS") {
-    const [ks, buys] = await Promise.all([j("/api/kols"), j(`/api/coins?${tfQ()}&kols=1&limit=8`)]);
+    const [ks, buys] = await Promise.all([j("/api/kols"), cjTrack(`/api/coins?${tfQ()}&kols=1&limit=8`)]);
     const kolRows = ks.map(k => `<button class="pop-item" data-kol="${esc(k.name)}" style="padding:6px 10px">${pfpHtml(k.pfp, k.name).replace('class="pfp"', 'class="pfp" style="width:30px;height:30px;font-size:11px"')}
         <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(k.name)}<br><span style="color:#8b8f98;font-size:11.5px">${esc((k.style || []).join(" · ") || k.status)}${k.summary.win_rate != null ? " · WR " + k.summary.win_rate + "%" : ""}</span></span><kbd>open ›</kbd></button>`).join("");
     showPanel(head(`<div class="pop-sec">Your KOLs · click to open their profile</div>${kolRows || '<div class="pop-sec">No KOLs yet: add some in the KOL LAB below.</div>'}
@@ -791,7 +883,8 @@ async function agentPop(name, anchor) {
 
 function sourcePop(name, anchor, back) {
   const s = (STATE.sources || []).find(x => x.name === name); if (!s) return;
-  showPanel(panelHtml({ dot: s.ok ? "#39ff88" : "#ff4d6d", title: esc(s.name), sub: esc(SOURCE_BLURB[s.name.replace(/ \(demo\)$/, "")] || "Data source") + ` · ${esc(s.agent)}`,
+  showPanel(panelHtml({ img: `<img class="cimg big" src="/api/srcicon/${encodeURIComponent(s.name)}" alt="" onerror="this.outerHTML='<div class=&quot;cimg big&quot;>${esc(s.name.slice(0, 2).toUpperCase())}</div>'" style="object-fit:contain;padding:10px;background:#fff1">`,
+    title: esc(s.name), sub: esc(SOURCE_BLURB[s.name.replace(/ \(demo\)$/, "")] || "Data source") + ` · ${esc(s.agent)}`,
     body: `${back ? `<button class="pop-item pop-back"><span class="ic">←</span>${esc(back.label)}</button><div class="pop-sep"></div>` : ""}
       <div class="pop-stats"><div><span>Status</span><b style="color:${s.ok ? "#7ee2a8" : "#ff9aa9"}">${s.ok ? "OK" : "Error"}</b></div><div><span>Latency</span><b>${s.latency_ms ? Math.round(s.latency_ms) + "ms" : "—"}</b></div>
       <div><span>Calls</span><b>${s.calls}</b></div><div><span>Errors</span><b>${s.errors}</b></div>
@@ -802,7 +895,9 @@ function sourcePop(name, anchor, back) {
 }
 
 async function holdingPop(k, h, anchor) {
-  let inDb = false; try { await j("/api/coin/" + encodeURIComponent(h.mint)); inDb = true; } catch { /* not a tracked runner */ }
+  const curl = "/api/coin/" + encodeURIComponent(h.mint);
+  let inDb = !!peek(curl);
+  if (!inDb) cjTrack(curl, 30000).then(() => { if (POP_MINT === "panel" && $("#coinpop").textContent.includes(h.symbol) && !$("#coinpop [data-coin]")) holdingPop(k, h, anchor); }, () => {});
   const x = h.multiple, cls = x == null ? "" : x >= 1 ? "pos" : "neg";
   const back = { label: `Back to ${k.name}'s $${h.symbol}`, fn: () => holdingPop(k, h, anchor) };
   showPanel(panelHtml({ img: coinImg(h.image, h.symbol, true, h.mint), title: `$${esc(h.symbol)}${h.name ? ` <span style="color:#a9adb6;font-weight:500">${esc(h.name)}</span>` : ""}`,

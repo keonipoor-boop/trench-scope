@@ -294,6 +294,7 @@ def positions(trades: list[dict], info: dict, sol_usd: float) -> list[dict]:
         pnl = ret + (0 if closed else unreal) - inv
         sym = ti.get("symbol") or mint[:6]
         out.append({
+            "end_ts": int(end) if end else None,
             "mint": mint, "symbol": sym, "name": ti.get("name"), "launchpad": ti.get("launchpad"),
             "themes": narratives.tag({"name": ti.get("name"), "symbol": sym}),
             "first_buy_ts": first.get("ts"), "invested_sol": round(inv, 3), "returned_sol": round(ret, 3),
@@ -347,6 +348,25 @@ def stats(pos: list[dict], trades: list[dict]) -> dict:
         "best": [{k: p[k] for k in ("symbol", "mint", "pnl_sol", "multiple")} for p in ranked[::-1][:3] if p["pnl_sol"] > 0],
         "worst": [{k: p[k] for k in ("symbol", "mint", "pnl_sol", "multiple")} for p in ranked[:3] if p["pnl_sol"] < 0],
     }
+
+
+PERIODS = [("lifetime", None), ("month", 30 * 86400), ("week", 7 * 86400), ("day", 86400)]
+
+
+def pnl_periods(pos: list[dict], sol_usd: float) -> dict:
+    """PnL per period (positions opened in the period): lifetime, month, week, day."""
+    now, out = time.time(), {}
+    for key, span in PERIODS:
+        ps = [p for p in pos if span is None or (p.get("first_buy_ts") or 0) >= now - span]
+        closed = [p for p in ps if p["closed"]]
+        pnl = round(sum(p["pnl_sol"] for p in ps), 2)
+        best = max(ps, key=lambda p: p["pnl_sol"], default=None)
+        out[key] = {"pnl_sol": pnl, "pnl_usd": round(pnl * sol_usd) if sol_usd else None,
+                    "invested_sol": round(sum(p["invested_sol"] for p in ps), 2), "positions": len(ps),
+                    "win_rate": round(sum(1 for p in closed if p["pnl_sol"] > 0) / len(closed) * 100) if closed else None,
+                    "roi_pct": round(pnl / sum(p["invested_sol"] for p in ps) * 100) if ps and sum(p["invested_sol"] for p in ps) else None,
+                    "best": {"symbol": best["symbol"], "pnl_sol": best["pnl_sol"]} if best and best["pnl_sol"] > 0 else None}
+    return out
 
 
 def archetype(s: dict) -> tuple[list[str], list[str]]:
@@ -471,7 +491,17 @@ def x_profile(handle: str | None) -> dict:
 
 
 # ---------------------------------------------------------------- entry points
+import threading as _threading
+
+_research_lock = _threading.Lock()
+
+
 def research(name: str) -> dict | None:
+    with _research_lock:
+        return _research(name)
+
+
+def _research(name: str) -> dict | None:
     k = next((x for x in list_kols() if x["name"] == name), None)
     if not k:
         return None
@@ -499,6 +529,9 @@ def research(name: str) -> dict | None:
         sides = side_wallet_insights(per_wallet, k.get("wallet"))
         text, by = describe(k, s, style, risk, sides)
         recent = sorted(all_pos, key=lambda p: -(p.get("first_buy_ts") or 0))[:15]
+        periods = pnl_periods(all_pos, sol_usd)
+        series = sorted([[p.get("first_buy_ts"), p.get("end_ts"), p["pnl_sol"], p["symbol"]] for p in all_pos
+                         if p.get("first_buy_ts") and p.get("end_ts")], key=lambda r: r[1])
         # what they're holding right now (open positions that still have some value): the KOL's moons
         holdings = sorted([p for p in all_pos if not p["closed"] and (p["unrealized_sol"] >= _conf().get("min_holding_sol", 0.01)
                                                                        or not info.get(p["mint"], {}).get("usd_price"))],
@@ -511,7 +544,7 @@ def research(name: str) -> dict | None:
                         for w, d in per_wallet.items()],
             "stats": s, "style": style, "risk": risk, "side_insights": sides,
             "description": text, "description_by": by, "data_source": src, "sol_usd": sol_usd,
-            "recent": recent, "holdings": holdings,
+            "recent": recent, "holdings": holdings, "periods": periods, "pnl_series": series,
         }
         set_status(name, "done", profile)
         run.result = f"{name}: {s.get('positions', 0)} positions, {', '.join(style)}"
@@ -521,11 +554,35 @@ def research(name: str) -> dict | None:
     return None
 
 
-def research_due():
-    """Called by the scheduler: refresh stale profiles."""
+def research_due(max_kols: int | None = None) -> int:
+    """Refresh stale profiles (oldest first). Returns how many were refreshed."""
     ensure_table()
-    hrs = _conf().get("refresh_h", 6)
+    hrs = _conf().get("refresh_h", 1)
+    stale = []
     for k in list_kols():
-        p = get_profile(k["name"])
-        if not p or p.get("status") != "done" or time.time() - (p.get("ts") or 0) > hrs * 3600:
-            research(k["name"])
+        p = get_profile(k["name"]) or {}
+        if p.get("status") == "running" and time.time() - (p.get("ts") or 0) < 1800:
+            continue
+        if p.get("status") != "done" or time.time() - (p.get("ts") or 0) > hrs * 3600:
+            stale.append((p.get("ts") or 0, k["name"]))
+    n = 0
+    for _, name in sorted(stale)[: max_kols or len(stale)]:
+        research(name)
+        n += 1
+    return n
+
+
+def start_worker():
+    """Background worker: keeps every KOL profile fresh (refresh_h, default hourly), one KOL at a time,
+    independent of the coin scans."""
+    def loop():
+        time.sleep(20)  # let the first scan get going
+        while True:
+            try:
+                research_due(max_kols=1)
+            except Exception as e:
+                log("KOLS", f"KOL worker: {e}", "warn")
+            time.sleep(30)
+    t = _threading.Thread(target=loop, daemon=True, name="kol-worker")
+    t.start()
+    return t

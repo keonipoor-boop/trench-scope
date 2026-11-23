@@ -417,3 +417,20 @@ dialog h3 { margin: 0 0 12px; letter-spacing: .12em; font-size: 13px; color: var
 .fake-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 14px; }
 .fake-grid div { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 2px 0; border-top: 1px solid #ffffff0d; }
 .fake-grid span { color: #b9a3a7; } .fake-grid b { color: #f1e4e6; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* source logos + LIMITED */
+.srcico { width: 13px; height: 13px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; object-fit: contain; background: #fff2; }
+.src.lim { --sc: var(--yellow); }
+/* KOL PnL period bar + card */
+.kperiod { position: absolute; top: 10px; left: 10px; z-index: 4; background: #05030acc; }
+.kperiod .kp-l { padding: 4px 10px; color: var(--dim); font: 700 10px var(--mono); letter-spacing: .1em; border-right: 1px solid var(--line); }
+.kd-auto { color: var(--dim); font-size: 10px; text-align: right; line-height: 1.4; }
+.pnl-card { margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: #0d0a14; border: 1px solid #ffffff14; font-family: Inter, system-ui, sans-serif; }
+.pnl-top { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+.pnl-l { display: block; color: #8b8f98; font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.pnl-top b { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pnl-usd { display: block; color: #a9adb6; font-size: 12px; }
+.pnl-mini { display: grid; grid-template-columns: repeat(4, auto); gap: 2px 18px; }
+.pnl-mini span { display: block; color: #8b8f98; font-size: 10.5px; } .pnl-mini b { font-size: 13px; color: #ececf1; }
+.pnl-svg { width: 100%; height: 90px; margin-top: 8px; display: block; }
+@media (max-width: 700px) { .pnl-mini { grid-template-columns: repeat(2, auto); } .kperiod { top: auto; bottom: 34px; } }

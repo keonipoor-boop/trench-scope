@@ -31,6 +31,8 @@ class Scheduler:
         log("SCOUT", f"scheduler up: scan every {every // 60}m, hourly at :{sc.get('hourly_at_minute', 0):02d}, "
                      f"daily at {sc.get('daily_at_hour', 8):02d}:00 local")
         last_scan = (db.kv_get("last_scan") or {}).get("ts", 0)
+        from core import kol_research  # KOL LAB profiles refresh hourly on their own worker
+        kol_research.start_worker()
         if not cfg.demo and cfg.get_path("sources.pumpportal.enabled", True):
             from sources import pumpportal  # live launch/migration feed runs between scans
             pumpportal.start(cfg.get_path("sources.pumpportal.url", "wss://pumpportal.fun/api/data"))
@@ -40,8 +42,6 @@ class Scheduler:
             if now - last_scan >= every:
                 last_scan = now
                 self._run("scan", pipeline.scan)
-                from core import kol_research  # KOL LAB: refresh stale profiles after each scan
-                self._run("kol_research", kol_research.research_due)
                 # fresh install / restart: don't make people wait until 8am for a thesis
                 for kind, max_age in (("daily", 86400), ("hourly", 3600)):
                     t = thesis.latest(kind)
