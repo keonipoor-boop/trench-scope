@@ -9,6 +9,14 @@ from core.links import parse_twitter
 from sources.base import Source
 
 
+def _ts(s):
+    from datetime import datetime
+    try:
+        return int(datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()) if s else None
+    except ValueError:
+        return None
+
+
 class Twitter(Source):
     name = "twitter"
     agent = "CATALYST"
@@ -30,17 +38,28 @@ class Twitter(Source):
                 r = self._get(f"/tweets/search/recent?query={quote(q + ' -is:retweet')}"
                               f"&max_results={self.conf.get('max_results', 50)}"
                               "&tweet.fields=public_metrics,created_at,author_id&expansions=author_id"
-                              "&user.fields=public_metrics,username")
+                              "&user.fields=public_metrics,username,name,verified")
                 users = {u["id"]: u for u in (r.get("includes") or {}).get("users", [])}
                 tweets = r.get("data") or []
                 upd["x_mentions"] = (r.get("meta") or {}).get("result_count", len(tweets))
-                ranked = sorted(tweets, key=lambda t: (t.get("public_metrics") or {}).get("like_count", 0), reverse=True)
+                def eng(t):
+                    pm = t.get("public_metrics") or {}
+                    fol = (users.get(t.get("author_id"), {}).get("public_metrics") or {}).get("followers_count", 0)
+                    return pm.get("like_count", 0) + 2 * pm.get("retweet_count", 0) + fol / 1000
+                ranked = sorted(tweets, key=eng, reverse=True)
                 upd["x_top_tweets"] = [{
-                    "text": t["text"][:200], "id": t["id"],
-                    "author": users.get(t.get("author_id"), {}).get("username"),
+                    "text": t["text"][:400], "id": t["id"],
+                    "author": (users.get(t.get("author_id"), {}).get("username") or "").lower() or None,
+                    "name": users.get(t.get("author_id"), {}).get("name"),
+                    "verified": users.get(t.get("author_id"), {}).get("verified"),
                     "followers": (users.get(t.get("author_id"), {}).get("public_metrics") or {}).get("followers_count"),
                     "likes": (t.get("public_metrics") or {}).get("like_count"),
-                } for t in ranked[:3]]
+                    "retweets": (t.get("public_metrics") or {}).get("retweet_count"),
+                    "replies": (t.get("public_metrics") or {}).get("reply_count"),
+                    "quotes": (t.get("public_metrics") or {}).get("quote_count"),
+                    "views": (t.get("public_metrics") or {}).get("impression_count"),
+                    "ts": _ts(t.get("created_at")),
+                } for t in ranked[:8]]
                 bigs = [u["username"] for u in users.values()
                         if (u.get("public_metrics") or {}).get("followers_count", 0) >= big]
                 upd["x_big_account"] = bool(bigs)

@@ -36,6 +36,22 @@ EMERGING = ["Lobster", "Cabal", "Tung", "Yapper", "Hamster", "Quantum", "Sloth",
             "Wizard", "Toaster", "Gremlin", "Pickle", "Possum", "Mochi", "Kraken", "Burrito", "Yeti", "Noodle", "Otter", "Waffle", "Comet"]
 CELEBS = ["elonmusk", "realdonaldtrump", "kanyewest", "cz_binance", "saylor", "mrbeast"]
 RANDOM_HANDLES = ["degenwhale", "solanalegend", "memesniper", "pumpwatcher", "chainsleuth", "cryptofren"]
+POST_LINES = ["${s} is the play. dont fade", "chart is clean on ${s}, aping", "cto is cooking on ${s} 🔥", "${s} devs based, sending",
+              "${s} community is insane rn", "told you about ${s} at 20k", "${s} next leg loading", "whales loading ${s} 👀"]
+
+
+def demo_posts(r, c, scale, now):
+    """Synthetic X search results: a few before the run, a few after."""
+    t0, hit = c.get("created_ts") or now - 3600, c.get("ts_100k") or (c.get("created_ts") or now) + 1800
+    out = []
+    for i in range(r.randint(2, 6)):
+        ts = int(t0 + (hit - t0) * r.uniform(0.05, 0.95)) if i < 3 else int(hit + r.uniform(300, 4 * 3600))
+        fol = int(10 ** r.uniform(2.5, 6.2))
+        out.append({"id": str(1_800_000_000_000_000_000 + r.randint(0, 10 ** 15)), "author": r.choice(RANDOM_HANDLES),
+                    "name": None, "followers": fol, "likes": int(scale * r.uniform(5, 700) * (fol / 1e4) ** 0.3),
+                    "retweets": int(scale * r.uniform(1, 120)), "replies": int(r.uniform(2, 90)),
+                    "text": r.choice(POST_LINES).replace("${s}", "$" + str(c.get("symbol"))), "ts": min(ts, int(now))})
+    return out
 DEMO_KOLS = ["Ansem", "Cented", "Orangie", "Gake", "Cupsey", "Jijo", "Euris", "Frank", "Kreo", "Waddles"]
 
 
@@ -302,8 +318,12 @@ class DemoDeep(_DemoBase):
                 "x_mentions": mentions, "x_big_account": big,
                 "x_big_accounts": [author] if big and author else (["cryptowhale"] if big else []),
                 "tweet_author": author,
-                "x_top_tweets": [{"author": r.choice(RANDOM_HANDLES), "likes": int(scale * r.uniform(20, 900)),
-                                  "text": f"${c.get('symbol')} is the play. {r.choice(['dont fade', 'chart is clean', 'cto is cooking', 'devs based'])}"}],
+                "x_top_tweets": demo_posts(r, c, scale, now),
+                "tweet_text": (f"{c.get('name')} {r.choice(['🚀', 'is inevitable', 'lol', 'who did this', '👀'])}" if author else None),
+                "tweet_ts": (int((c.get("created_ts") or now) - r.uniform(600, 7200)) if author else None),
+                "tweet_author_followers": (int(r.uniform(2e6, 9e7)) if author and s["cat"] == "celeb" else int(r.uniform(800, 60000)) if author else None),
+                "tweet_likes": (int(scale * r.uniform(800, 40000)) if author else None),
+                "tweet_retweets": (int(scale * r.uniform(100, 6000)) if author else None),
             }
         for nm, ag in (("helius das (demo)", "HOLDERS"), ("helius txs (demo)", "FEES"), ("kol wallets (demo)", "KOLS"), ("x api (demo)", "CATALYST")):
             source_result(nm, ag, True, latency_ms=_rng(now, nm).uniform(90, 600))

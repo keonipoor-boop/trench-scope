@@ -250,6 +250,33 @@ function renderHourly() {
         <div class="sec">EMERGING</div><div class="words">${x.emerging.map(e => `<span class="word ${e.new_meta ? "new" : ""}" title="${e.theme ? "part of " + esc(e.theme) : "no theme: possible new meta"}">${esc(e.word)} ×${e.count}</span>`).join("") || "<span class=dim>none</span>"}</div></div></div>`;
 }
 
+let CF_TAB = "main";
+
+// 𝕏 POSTS: the posts that pushed a coin (linked tweet, tweets in its description, X search), boosts first
+const fmtN = (n) => n == null ? null : n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M" : n >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K" : String(n);
+function xPostsHtml(d, c, compact) {
+  const PH = { before: ["pre", "BEFORE THE RUN"], during: ["dur", "DURING THE RUN"], after: ["aft", "AFTER THE RUN"], unknown: ["unk", ""] };
+  const card = (p) => {
+    const ph = PH[p.phase] || PH.unknown, h = p.author;
+    const stats = [["♥", p.likes], ["↻", p.retweets], ["💬", p.replies], ["👁", p.views]].filter(s => s[1] != null).map(s => `<span>${s[0]} ${fmtN(s[1])}</span>`).join("");
+    return `<article class="xpost ${p.boost ? "boost" : ""}">
+      <div class="xp-head">${pfpHtml(h ? "/api/pfp/" + encodeURIComponent(h) : null, h || "X")}
+        <div style="min-width:0"><b>${esc(p.name || (h ? "@" + h : "unknown account"))}${p.verified ? ' <i class="xp-v">✓</i>' : ""}</b>
+          <span>${h ? "@" + esc(h) : ""}${p.followers != null ? " · " + fmtN(p.followers) + " followers" : ""}</span></div>
+        <div class="xp-tags">${p.boost ? '<span class="xp-tag boost">▲ BOOST</span>' : ""}${p.who ? `<span class="xp-tag who">${esc(p.kol ? "KOL · " + p.kol : p.who)}</span>` : ""}${ph[1] ? `<span class="xp-tag ${ph[0]}">${ph[1]}</span>` : ""}</div></div>
+      ${p.text ? `<p class="xp-text">${esc(p.text)}</p>` : `<p class="xp-text dim">X didn't return this post's text. Open it to read it.</p>`}
+      <div class="xp-foot"><span class="xp-when">${esc(p.when || "")}</span>${stats}${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">Open on 𝕏 ↗</a>` : ""}</div>
+      ${p.why && p.why.length ? `<div class="xp-why">${p.why.map(w => esc(w)).join(" · ")}</div>` : ""}
+    </article>`;
+  };
+  const posts = compact ? d.posts.slice(0, 6) : d.posts;
+  const head = `<div class="xp-sum">${d.boosts ? `<b>${d.boosts}</b> post${d.boosts === 1 ? "" : "s"} likely boosted $${esc(c.symbol)}` : d.posts.length ? "No post clearly pushed it" : "No posts found"}
+    ${d.mentions != null ? ` · ${Number(d.mentions).toLocaleString()} mentions in the last 7 days` : ""}${(d.big_accounts || []).length ? ` · big accounts: ${d.big_accounts.map(a => "@" + esc(a)).join(", ")}` : ""}</div>`;
+  const acct = d.account ? `<a class="xp-acct" href="${esc(d.account.url)}" target="_blank" rel="noopener noreferrer">𝕏 ${d.account.kind === "community" ? "The coin's X community" : "The coin's X account @" + esc(d.account.handle || "")} ↗</a>` : "";
+  const note = d.searched ? "" : `<div class="xp-note">Showing the posts the coin links to. Add an <b>X bearer token</b> in ⚙ SETTINGS to also search X for every post about it (CA + $${esc(c.symbol)}).</div>`;
+  return head + acct + (posts.map(card).join("") || "") + note;
+}
+
 async function openCoin(mint) {
   selected = mint; document.querySelectorAll("#book .row").forEach(r => r.classList.toggle("sel", r.dataset.mint === mint));
   let c; try { c = await j("/api/coin/" + encodeURIComponent(mint)); } catch { return; }
@@ -267,6 +294,9 @@ async function openCoin(mint) {
   $("#coin").innerHTML = `<div class="cf-top"><img src="/api/img/${encodeURIComponent(c.mint)}" alt="" onerror="this.remove()">
       <div style="flex:1;min-width:0"><div class="cf-sym">$${esc(c.symbol)} ${badge}</div><div class="cf-name">${esc(c.name)} · ${esc(c.mint.slice(0, 6))}…${esc(c.mint.slice(-6))}${c.demo ? " · demo" : ""}</div></div>
       <div style="text-align:right"><div class="midnum" style="color:#39ff88">${usd(c.ath_mcap)}</div><div class="dim">ATH · now ${usd(c.usd_market_cap)}</div></div></div>
+    <div class="cf-tabs" role="tablist"><button data-cf="main" aria-selected="${CF_TAB === "main"}">◆ OVERVIEW</button><button data-cf="x" aria-selected="${CF_TAB === "x"}">𝕏 POSTS <span id="cf-xn"></span></button></div>
+    <div id="cf-x" ${CF_TAB === "x" ? "" : "hidden"}><div class="dim" style="padding:10px 0"><span class="spin">◌</span> finding the posts behind it…</div></div>
+    <div id="cf-main" ${CF_TAB === "main" ? "" : "hidden"}>
     ${fakeBlock(c)}
     <div class="cf-cat"><div class="lbl">◆ ${esc(CAT[c.primary_catalyst] || "UNCLASSIFIED")}</div>
       <div class="sec" style="margin-top:6px"><span>WHY IT RAN</span><span>${c.why_llm ? "CLAUDE" : "TEMPLATE"}</span></div>
@@ -285,7 +315,17 @@ async function openCoin(mint) {
     <div class="sec"><span>CATALYST RULES HIT</span></div>${(c.catalysts || []).map(h => `<div class="kv"><span>${esc(h.label)}</span><b>${h.weight}</b></div>`).join("")}
     <div class="sec"><span>THEMES</span></div><div class="words">${(c.themes || []).map(t => `<span class="word">${esc(t)}</span>`).join("") || "<span class=dim>unthemed</span>"}</div>
     ${c.description ? `<div class="sec"><span>DESCRIPTION</span></div><div class="dim">${esc(c.description)}</div>` : ""}
-    <div class="links">${links}</div>`;
+    <div class="links">${links}</div></div>`;
+  $("#coin").querySelectorAll(".cf-tabs button").forEach(b => b.onclick = () => {
+    CF_TAB = b.dataset.cf;
+    $("#coin").querySelectorAll(".cf-tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+    $("#cf-main").hidden = CF_TAB !== "main"; $("#cf-x").hidden = CF_TAB !== "x";
+  });
+  cj("/api/coin/" + encodeURIComponent(mint) + "/x", 120000).then(d => {
+    if (selected !== mint) return;
+    $("#cf-xn").textContent = d.boosts ? `· ${d.boosts} boost${d.boosts === 1 ? "" : "s"}` : d.posts.length ? `· ${d.posts.length}` : "";
+    $("#cf-x").innerHTML = xPostsHtml(d, c);
+  }).catch(() => { if (selected === mint) $("#cf-x").innerHTML = '<div class="dim" style="padding:10px 0">couldn\'t load posts right now</div>'; });
   if (STATE) drawTapeChart();
 }
 
@@ -1000,8 +1040,19 @@ async function openPop(mint, anchor, back) {
     ${items.map(i => `<a class="pop-item" href="${esc(i[3])}" target="_blank" rel="noopener noreferrer"><span class="ic">${i[1]}</span>${i[2]}<kbd>${i[0]}</kbd></a>`).join("")}
     <button class="pop-item" onclick="POP_ACTIONS.c()"><span class="ic">⧉</span><span id="pop-copy">Copy contract address</span><kbd>C</kbd></button>
     <div class="pop-sep"></div>
+    <button class="pop-item" onclick="POP_ACTIONS.b()"><span class="ic">𝕏</span><span>Posts that boosted it <i class="dim" id="pop-xn"></i></span><kbd>B</kbd></button>
     <button class="pop-item" onclick="POP_ACTIONS.f()"><span class="ic">≡</span>Show full coin file<kbd>F</kbd></button>`;
   placePop(anchor);
+  const xurl = "/api/coin/" + encodeURIComponent(c.mint) + "/x";
+  cj(xurl, 120000).then(d => { if (POP_MINT === c.mint && $("#pop-xn")) $("#pop-xn").textContent = d.boosts ? `· ${d.boosts}` : d.posts.length ? `· ${d.posts.length} posts` : "· none found"; }).catch(() => {});
+  POP_ACTIONS.b = async () => {
+    const reopen = () => openPop(c.mint, anchor, back);
+    showPanel(panelHtml({ img: coinImg(c.image, c.symbol, true, c.mint), title: "𝕏 Posts · $" + esc(c.symbol), sub: "what pushed it, boosts first",
+      body: `<button class="pop-item pop-back"><span class="ic">←</span>Back to $${esc(c.symbol)}<kbd>⌫</kbd></button><div class="pop-sep"></div><div class="xp-pop" id="xp-pop"><div class="pop-sec"><span class="spin">◌</span> loading…</div></div>` }),
+      anchor, { after: (pop) => { pop.querySelector(".pop-back").onclick = (e) => { e.stopPropagation(); reopen(); }; POP_ACTIONS.backspace = reopen; } });
+    try { const d = await cj(xurl, 120000); if ($("#xp-pop")) { $("#xp-pop").innerHTML = xPostsHtml(d, c, true); placePop(anchor); } }
+    catch { if ($("#xp-pop")) $("#xp-pop").innerHTML = '<div class="pop-sec">couldn\'t load posts right now</div>'; }
+  };
 }
 
 function placePop(anchor) {

@@ -207,6 +207,13 @@ there and in `TFS` in web/app.js.
 - `core/forensics.explain_fake(coin)` -> `coin["fake"] = {headline, failed, reasons, metrics}` for coins with
   is_real False; shown by `fakeBlock()` in the coin popover, COIN FILE and the FEES agent list.
 
+### 𝕏 POSTS tab
+`core/xposts.py` -> `/api/coin/<mint>/x`: the posts that pushed a coin. Sources: the tweet the coin links to (X API with
+`X_BEARER_TOKEN`, else the free `publish.twitter.com/oembed`, cached in kv `oembed:<id>`), tweet links in the description,
+and X search results (`x_top_tweets`, top 8 by engagement, from `sources/twitter.py`). Each post gets a phase vs the run
+(before launch / before it crossed $100k / after) and `boost` = before or during the run AND (linked tweet, celebrity,
+KOL, big account, or real engagement). UI: COIN FILE tabs (`CF_TAB`, `xPostsHtml`) and the coin popover's "Posts that boosted it" (key B).
+
 ### Clickable Synapse + popovers
 Everything in the Synapse opens a Claude-style popover (`#coinpop`, web/app.js): narrative neurons -> `themePop`,
 agent blobs -> `agentPop` (SCOUT/HOLDERS/KOLS/FEES/CATALYST/THESIS), SENSORY INPUT cards -> `sourcePop`, tape rows

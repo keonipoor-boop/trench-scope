@@ -195,6 +195,16 @@ def coin(mint: str):
     return c
 
 
+@app.get("/api/coin/{mint}/x")
+def coin_x(mint: str):
+    """𝕏 tab: posts that boosted the coin (linked tweet, tweets in its description, X search), ranked."""
+    from core import xposts
+    c = get_db().get_coin(mint)
+    if not c:
+        raise HTTPException(404, "unknown mint")
+    return xposts.posts_for(c)
+
+
 @app.get("/api/coins")
 def coins_list(tf: str = "7D", theme: str | None = None, catalyst: str | None = None, real: str | None = None,
                fail: str | None = None, kols: int = 0, sort: str = "ath", limit: int = 60):
