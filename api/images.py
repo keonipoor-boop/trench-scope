@@ -169,5 +169,7 @@ async def source_icon(name: str):
         yield f"https://www.google.com/s2/favicons?domain={domain}&sz=64"
         yield f"https://icons.duckduckgo.com/ip3/{domain}.ico"
         yield f"https://{domain}/favicon.ico"
+        if domain == "pumpportal.fun":  # no findable favicon: it's pump.fun's feed, use their logo
+            yield "https://www.google.com/s2/favicons?domain=pump.fun&sz=64"
 
     return await _cached("src_" + domain.replace(".", "_"), candidates())
