@@ -42,6 +42,7 @@ def compute(window_h: float, baseline_h: float, now: float | None = None, coins:
         return d
 
     ln, lb, rn, rb = by_theme(launches_now), by_theme(launches_base), by_theme(runners_now), by_theme(runners_base)
+    no_baseline = not launches_base  # nothing earlier to compare with: momentum is neutral (1x), flagged
     overall_hit = len(runners_now) / len(launches_now) if launches_now else 0
     all_themes = list(narratives.themes()) + [UNTHEMED]
     rows = []
@@ -55,7 +56,7 @@ def compute(window_h: float, baseline_h: float, now: float | None = None, coins:
             "theme": t, "runners": r_now, "runners_base": r_base, "launches": l_now, "launches_base": l_base,
             "hit_rate": round(r_now / l_now * 100, 2) if l_now else 0.0,
             "hit_rate_base": round(r_base / l_base * 100, 2) if l_base else 0.0,
-            "momentum": round(rate_now / rate_base, 2) if r_now else 0.0,
+            "momentum": (1.0 if no_baseline else round(min(rate_now / rate_base, 20.0), 2)) if r_now else 0.0,
             "share": round(r_now / len(runners_now) * 100, 1) if runners_now else 0.0,
             "real_pct": round(len(real) / r_now * 100) if r_now else None,
             "top": [{"mint": c["mint"], "symbol": c.get("symbol"), "ath": c.get("ath_mcap")}
@@ -96,7 +97,7 @@ def compute(window_h: float, baseline_h: float, now: float | None = None, coins:
             avoid.append(f"{r['theme']}: {100 - (r['real_pct'] or 0)}% of runners fail the REAL checks (botted/concentrated)")
     real_all = [c for c in runners_now if c.get("is_real")]
     return {
-        "window_h": window_h, "baseline_h": baseline_h, "ts": int(now),
+        "window_h": window_h, "baseline_h": baseline_h, "ts": int(now), "no_baseline": no_baseline,
         "launches": len(launches_now), "runners": len(runners_now), "runners_base": len(runners_base),
         "launches_base": len(launches_base),
         "hit_rate": round(overall_hit * 100, 2),

@@ -123,7 +123,9 @@ def themes_live(tf: str = "24H"):
     tf, w = _window(tf)
     wh = w / 3600
     tail_h = max(wh / 24 if w >= 86400 else wh / 6, 1 / 3600)
-    d = thesis.compute(wh, wh * 3)
+    # compare against the 3x window before it, but only as far back as data is kept (lookback + 4 days)
+    kept_h = (get_config().get_path("pipeline.lookback_days", 7) + 4) * 24
+    d = thesis.compute(wh, max(min(wh * 3, kept_h - wh), wh * 0.25))
     h = thesis.compute(tail_h, tail_h * 6)
     hmap = {r["theme"]: r for r in h["themes"]}
     rows = [{**r, "h_runners": hmap[r["theme"]]["runners"], "h_share": hmap[r["theme"]]["share"],
@@ -174,6 +176,46 @@ def coin(mint: str):
         raise HTTPException(404, "unknown mint")
     c["snapshots"] = rows("SELECT ts, mcap, holders FROM snapshots WHERE mint=? ORDER BY ts", (mint,))
     return c
+
+
+@app.get("/api/coins")
+def coins_list(tf: str = "7D", theme: str | None = None, catalyst: str | None = None, real: str | None = None,
+               fail: str | None = None, kols: int = 0, sort: str = "ath", limit: int = 60):
+    """Runners in a timeframe, filtered for the Synapse popovers.
+    theme=<name>|Unthemed, catalyst=<key>, real=true|false|pending, fail=<signal key>|any, kols=1 (KOL-bought)."""
+    tf, w = _window(tf)
+    now = time.time()
+    lookback = get_config().get_path("pipeline.lookback_days", 7) * 86400
+    where, args = ["is_runner=1", "created_ts >= ?", "COALESCE(ts_100k, created_ts) >= ?"], [int(now - max(lookback, w)), int(now - w)]
+    if theme == "Unthemed":
+        where.append("(themes IS NULL OR themes='[]')")
+    elif theme:
+        where.append("themes LIKE ?")
+        args.append(f'%{json.dumps(theme)}%')
+    if catalyst:
+        where.append("primary_catalyst = ?")
+        args.append(catalyst)
+    if real in ("true", "false"):
+        where.append("is_real = ?")
+        args.append(1 if real == "true" else 0)
+    elif real == "pending":
+        where.append("is_real IS NULL")
+    order = {"ath": "ath_mcap DESC", "new": "COALESCE(ts_100k, created_ts) DESC",
+             "holders": "CAST(json_extract(data,'$.holders') AS INTEGER) DESC"}.get(sort, "ath_mcap DESC")
+    rows = get_db().coins(" AND ".join(where), tuple(args), order=order, limit=None if (fail or kols) else min(limit, 200))
+    out = []
+    for c in rows:
+        fails = [{"key": k, "label": v.get("label"), "note": v.get("note"), "required": v.get("required")}
+                 for k, v in (c.get("signals") or {}).items() if v.get("passed") is False]
+        if fail and not any(f["key"] == fail or fail == "any" for f in fails):
+            continue
+        if kols and not c.get("kols"):
+            continue
+        out.append({**slim(c), "top10_pct": c.get("top10_pct"), "unique_traders": c.get("unique_traders"),
+                    "fails": fails, "kols": [k.get("name") for k in (c.get("kols") or [])][:5]})
+        if len(out) >= min(limit, 200):
+            break
+    return {"tf": tf, "count": len(out), "coins": out}
 
 
 @app.get("/api/runners")

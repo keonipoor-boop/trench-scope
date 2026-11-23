@@ -90,16 +90,7 @@ function renderTape() {
   $("#t-last").textContent = usd(t[0].ath_mcap);
   $("#t-lastsym").textContent = `$${t[0].symbol} · ${ago(t[0].ts_100k || t[0].created_ts)} ago`;
   $("#tape-hdr").textContent = `${t.length} latest`;
-  $("#book").innerHTML = t.map(c => {
-    const isNew = seenTape.size && !seenTape.has(c.mint);
-    const status = c.is_real === true ? '<span class="pill real">Real</span>' : c.is_real === false ? '<span class="pill fake">Fake</span>' : '<span class="pill wait">Analyzing</span>';
-    const sub = [c.primary_catalyst ? CAT_NICE[c.primary_catalyst] || c.primary_catalyst : "Classifying…",
-                 c.holders ? Number(c.holders).toLocaleString() + " holders" : null].filter(Boolean).join(" · ");
-    return `<div class="coin-row ${c.mint === selected ? "sel" : ""} ${isNew ? "new" : ""}" data-mint="${esc(c.mint)}" tabindex="0" role="option">
-      ${coinImg(c.image, c.symbol)}
-      <div class="cn"><b>${esc(c.name || c.symbol)}${status}</b><span>$${esc(c.symbol)} · ${esc(sub)}</span></div>
-      <div class="cv"><b>${usd(c.ath_mcap)}</b><span>now ${usd(c.usd_market_cap)}${c.time_to_100k_min != null ? " · " + mins(c.time_to_100k_min) : ""}</span></div></div>`;
-  }).join("");
+  $("#book").innerHTML = t.map(c => coinRowHtml(c, { sel: c.mint === selected, isNew: seenTape.size && !seenTape.has(c.mint) })).join("");
   t.forEach(c => seenTape.add(c.mint));
   document.querySelectorAll("#book .coin-row").forEach(el => {
     el.onclick = (e) => { e.stopPropagation(); openCoin(el.dataset.mint); openPop(el.dataset.mint, el); };
@@ -146,9 +137,10 @@ function renderSynapse() {
     <div><span>AVG TTT</span><b>${mins(d.avg_ttt_min)}</b></div><div><span>LAST ${tfWords(th.tail_s)} LEADER</span><b class="m">${esc(th.hourly_leader || "—")}</b></div>`;
   $("#sources").innerHTML = STATE.sources.length ? STATE.sources.map(s => {
     const cls = s.ok ? "ok" : "bad";
-    return `<div class="src ${cls}"><b>${esc(s.name)}</b><span class="st" style="color:${s.ok ? "#39ff88" : "#ff4d6d"}">${s.ok ? "● OK" : "● ERR"}</span>
+    return `<div class="src ${cls}" data-src="${esc(s.name)}" tabindex="0" style="cursor:pointer"><b>${esc(s.name)}</b><span class="st" style="color:${s.ok ? "#39ff88" : "#ff4d6d"}">${s.ok ? "● OK" : "● ERR"}</span>
       <span class="sub">${esc(s.agent)} · ${s.calls} calls · ${s.latency_ms ? Math.round(s.latency_ms) + "ms" : "—"}${!s.ok && s.last_error ? " · " + esc(s.last_error) : ""}</span></div>`;
   }).join("") : `<div class="src off"><b>no source calls yet</b><span></span><span class="sub">run a scan, or python run.py doctor</span></div>`;
+  document.querySelectorAll("#sources .src[data-src]").forEach(el => el.onclick = (e) => { e.stopPropagation(); sourcePop(el.dataset.src, el); });
   const t = STATE.daily;
   if (!t) { $("#cortex").innerHTML = `<div class="cx-card"><div class="empty">no daily thesis yet<br><br><button onclick="post('/api/thesis/daily')">WRITE ONE</button></div></div>`; return; }
   const x = t.data;
@@ -555,17 +547,28 @@ $("#koladd-form").addEventListener("submit", async (e) => {
 loadKols(); setInterval(loadKols, 6000);
 
 // ---- coin popover (Claude-style menu card) ------------------------------------------
+function statusPill(c) {
+  return c.is_real === true ? '<span class="pill real">Real</span>' : c.is_real === false ? '<span class="pill fake">Fake</span>' : '<span class="pill wait">Analyzing</span>';
+}
+function coinRowHtml(c, o = {}) {
+  const sub = o.sub || [c.primary_catalyst ? CAT_NICE[c.primary_catalyst] || c.primary_catalyst : "Classifying…",
+                        c.holders ? Number(c.holders).toLocaleString() + " holders" : null].filter(Boolean).join(" · ");
+  return `<div class="coin-row ${o.sel ? "sel" : ""} ${o.isNew ? "new" : ""}" data-mint="${esc(c.mint)}" tabindex="0" role="option">
+    ${coinImg(c.image, c.symbol)}
+    <div class="cn"><b>${esc(c.name || c.symbol)}${statusPill(c)}</b><span>$${esc(c.symbol)} · ${esc(sub)}</span></div>
+    <div class="cv"><b>${usd(c.ath_mcap)}</b><span>now ${usd(c.usd_market_cap)}${c.time_to_100k_min != null ? " · " + mins(c.time_to_100k_min) : ""}</span></div></div>`;
+}
 function coinImg(url, sym, big) {
   const ini = esc((sym || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?");
   return url && /^https:\/\//.test(url)
     ? `<img class="cimg${big ? " big" : ""}" src="${esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;cimg${big ? " big" : ""}&quot;>${ini}</div>'">`
     : `<div class="cimg${big ? " big" : ""}">${ini}</div>`;
 }
-let POP_MINT = null, POP_ACTIONS = {};
-async function openPop(mint, anchor) {
+let POP_MINT = null, POP_ACTIONS = {}, POP_ANCHOR = null;
+async function openPop(mint, anchor, back) {
   const pop = $("#coinpop");
   let c; try { c = await j("/api/coin/" + encodeURIComponent(mint)); } catch { return; }
-  POP_MINT = mint;
+  POP_MINT = mint; POP_ANCHOR = anchor;
   const status = c.is_real === true ? '<span class="pill real">Real</span>' : c.is_real === false ? '<span class="pill fake">Fake</span>' : '<span class="pill wait">Analyzing</span>';
   const link = (u) => u && /^https?:\/\//.test(u) ? u : null;
   const items = [
@@ -580,7 +583,9 @@ async function openPop(mint, anchor) {
   POP_ACTIONS.f = () => { closePop(); $("#coinfile").scrollIntoView({ behavior: "smooth", block: "start" }); };
   const sig = Object.values(c.signals || {}).map(s => `<span class="pill ${s.passed === true ? "real" : s.passed === false ? "fake" : "wait"}" title="${esc(s.note)}" style="margin:0">${esc(s.label)}</span>`).join("");
   const stat = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
-  pop.innerHTML = `<div class="pop-head">${coinImg(c.image, c.symbol, true)}
+  if (back) POP_ACTIONS.backspace = back.fn;
+  pop.innerHTML = `${back ? `<button class="pop-item pop-back" onclick="POP_ACTIONS.backspace()"><span class="ic">←</span>${esc(back.label)}<kbd>⌫</kbd></button><div class="pop-sep"></div>` : ""}
+    <div class="pop-head">${coinImg(c.image, c.symbol, true)}
       <div style="min-width:0"><b>${esc(c.name || c.symbol)}</b><span>$${esc(c.symbol)} · ${esc(CAT_NICE[c.primary_catalyst] || "Classifying…")}</span>${status}</div>
       <button class="pop-x" aria-label="Close" onclick="closePop()">✕</button></div>
     <div class="pop-stats">${stat("ATH", usd(c.ath_mcap))}${stat("Now", usd(c.usd_market_cap))}
@@ -594,20 +599,150 @@ async function openPop(mint, anchor) {
     <button class="pop-item" onclick="POP_ACTIONS.c()"><span class="ic">⧉</span><span id="pop-copy">Copy contract address</span><kbd>C</kbd></button>
     <div class="pop-sep"></div>
     <button class="pop-item" onclick="POP_ACTIONS.f()"><span class="ic">≡</span>Show full coin file<kbd>F</kbd></button>`;
-  pop.hidden = false;
-  // place next to the row like a context menu: left of the list if there's room, else below
-  const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight, vw = innerWidth, vh = innerHeight;
-  let x = r.left - pw - 10, y = r.top - 8;
-  if (x < 8) { x = Math.min(r.left, vw - pw - 8); y = r.bottom + 6; }
+  placePop(anchor);
+}
+
+function placePop(anchor) {
+  // next to what was clicked, like a context menu: to its left if there's room, else right, else below
+  const pop = $("#coinpop"); pop.hidden = false;
+  const r = anchor.getBoundingClientRect ? anchor.getBoundingClientRect()
+    : { left: anchor.left, right: anchor.left, top: anchor.top, bottom: anchor.top };
+  const pw = pop.offsetWidth, ph = pop.offsetHeight, vw = innerWidth, vh = innerHeight;
+  let x = r.left - pw - 14, y = r.top - 20;
+  if (x < 8) x = r.right + 14;
+  if (x + pw > vw - 8) { x = Math.max(8, Math.min(r.left, vw - pw - 8)); y = r.bottom + 8; }
   y = Math.max(8, Math.min(y, vh - ph - 8));
   pop.style.left = x + "px"; pop.style.top = y + "px";
-  pop.querySelector(".pop-item")?.focus({ preventScroll: true });
+  pop.scrollTop = 0;
+  pop.querySelector(".pop-item, .coin-row")?.focus({ preventScroll: true });
 }
+
+// ---- panel popovers: narratives, agents, sources -------------------------------------
+const AGENT_BLURB = { SCOUT: "Discovery · finds launches, migrations and runners", HOLDERS: "Holder base · counts, top-10 concentration",
+  KOLS: "KOL wallets · who bought what, KOL LAB profiles", FEES: "Fake-chart filter · fees, wash trading, staircase charts",
+  CATALYST: "Why it ran · catalyst classification", THESIS: "Narrative thesis · daily + hourly meta" };
+const SOURCE_BLURB = { pumpportal: "Live launches + migrations (websocket)", jupiter: "Top traded / trending pump.fun tokens",
+  jupiter_tokens: "Holders, top-holder %, traders, organic score", gecko_discovery: "PumpSwap + pump.fun pool lists",
+  geckoterminal: "Price history → ATH, time to $100k", chart_shape: "1-minute candles → staircase detector",
+  dexscreener: "Market cap, volume, pair, socials", dex_feeds: "Profile + boost feeds (socials)", metadata: "Descriptions, X links, images",
+  solana_rpc: "Free trade sample → fees + wash forensics", helius_txs: "Swap history → fees + wash forensics",
+  helius_holders: "Holder list → holders, top-10 %", kols: "KOL wallet buys", twitter: "X mentions, big accounts",
+  pumpfun: "pump.fun API (Cloudflare often blocks it)", pumpfun_details: "pump.fun coin details", kol_research: "KOL LAB wallet history" };
+
+function panelHtml({ dot, title, sub, body }) {
+  return `<div class="pop-head" style="grid-template-columns:${dot ? "28px " : ""}1fr auto">
+      ${dot ? `<span style="width:16px;height:16px;border-radius:50%;background:${dot};box-shadow:0 0 12px ${dot};margin-left:6px"></span>` : ""}
+      <div style="min-width:0"><b>${title}</b><span>${sub || ""}</span></div>
+      <button class="pop-x" aria-label="Close" onclick="closePop()">✕</button></div><div class="pop-sep"></div>${body}`;
+}
+
+function showPanel(html, anchor, wire) {
+  const pop = $("#coinpop");
+  POP_MINT = "panel"; POP_ACTIONS = {}; POP_ANCHOR = anchor;
+  pop.innerHTML = html; placePop(anchor);
+  pop.querySelectorAll(".coin-row").forEach(el => {
+    el.onclick = (e) => { e.stopPropagation(); openPop(el.dataset.mint, anchor, wire.back); };
+    el.onkeydown = (e) => { if (e.key === "Enter") el.click(); };
+  });
+  wire.after && wire.after(pop);
+}
+
+const coinList = (cs, empty, subFn) => cs.length ? cs.map(c => coinRowHtml(c, { sub: subFn && subFn(c) })).join("")
+  : `<div class="pop-sec" style="padding-bottom:10px">${empty}</div>`;
+const tfQ = () => "tf=" + encodeURIComponent(TF);
+
+async function themePop(name, anchor) {
+  const row = (STATE.themes.themes || []).find(t => t.theme === name) || {};
+  const idx = STATE.themes.themes.findIndex(t => t.theme === name);
+  const color = window.Synapse.PALETTE[idx % window.Synapse.PALETTE.length];
+  const d = await j(`/api/coins?${tfQ()}&theme=${encodeURIComponent(name)}&limit=40`);
+  const mom = STATE.themes.daily.no_baseline ? "momentum n/a (no earlier data)" : `${row.momentum ?? 0}x momentum`;
+  const sub = `${row.runners ?? d.count} runners in ${TF} · ${row.hit_rate ?? 0}% hit rate · ${mom}${row.real_pct != null ? ` · ${row.real_pct}% real` : ""}`;
+  const back = { label: `Back to ${name}`, fn: () => themePop(name, anchor) };
+  showPanel(panelHtml({ dot: color, title: esc(name), sub: esc(sub),
+    body: `<div class="pop-stats"><div><span>Launches</span><b>${row.launches ?? "—"}</b></div><div><span>Share</span><b>${row.share ?? 0}%</b></div>
+      <div><span>Last ${tfWords(STATE.themes.tail_s)}</span><b>${row.h_runners ?? 0} runners</b></div><div><span>Prev hit rate</span><b>${row.hit_rate_base ?? 0}%</b></div></div>
+      <div class="pop-sep"></div><div class="pop-sec">Coins · biggest ATH first</div>${coinList(d.coins, `No ${esc(name)} runners in the last ${TF}. Try a longer timeframe.`)}` }),
+    anchor, { back });
+}
+
+async function agentPop(name, anchor) {
+  const back = { label: `Back to ${name}`, fn: () => agentPop(name, anchor) };
+  const a = (STATE.agents || []).find(x => x.name === name) || {};
+  const head = (body, sub) => panelHtml({ dot: window.Synapse.AGENT_COLORS[name], title: name,
+    sub: esc(sub || AGENT_BLURB[name]) + (a.status ? ` · <span style="color:#a9adb6">${esc(a.status)}${a.last_ts ? " " + ago(a.last_ts) + " ago" : ""}</span>` : ""), body });
+  if (name === "SCOUT") {
+    const d = await j(`/api/coins?${tfQ()}&sort=new&limit=8`), ls = STATE.last_scan || {};
+    const src = (STATE.sources || []).map(s => `<button class="pop-item" data-src="${esc(s.name)}"><span class="ic" style="color:${s.ok ? "#7ee2a8" : "#ff9aa9"}">●</span>${esc(s.name)}<kbd>${s.calls} calls</kbd></button>`).join("");
+    showPanel(head(`<div class="pop-stats"><div><span>Last scan</span><b>${ls.ts ? ago(ls.ts) + " ago" : "—"}</b></div><div><span>Took</span><b>${ls.seconds ?? "—"}s</b></div>
+      <div><span>Coins seen</span><b>${ls.discovered ?? "—"}</b></div><div><span>Runners</span><b>${ls.runners ?? "—"}</b></div></div>
+      <div class="pop-sep"></div><div class="pop-sec">Newest runners · ${TF}</div>${coinList(d.coins, "No runners in this timeframe yet.")}
+      <div class="pop-sep"></div><div class="pop-sec">Sources</div>${src}`), anchor,
+      { back, after: (pop) => pop.querySelectorAll("[data-src]").forEach(b => b.onclick = (e) => { e.stopPropagation(); sourcePop(b.dataset.src, anchor, back); }) });
+  } else if (name === "HOLDERS") {
+    const [top, bad] = await Promise.all([j(`/api/coins?${tfQ()}&sort=holders&limit=8`), j(`/api/coins?${tfQ()}&fail=holders&limit=6`)]);
+    const sub = (c) => `${c.holders != null ? Number(c.holders).toLocaleString() + " holders" : "holders —"} · top 10 ${c.top10_pct != null ? c.top10_pct + "%" : "—"}`;
+    showPanel(head(`<div class="pop-sec">Most holders · ${TF}</div>${coinList(top.coins, "No runners in this timeframe.", sub)}
+      <div class="pop-sep"></div><div class="pop-sec">Failing the holder checks</div>${coinList(bad.coins, "None failing.", sub)}`), anchor, { back });
+  } else if (name === "FEES") {
+    const d = await j(`/api/coins?${tfQ()}&fail=any&limit=40`);
+    const fake = d.coins.filter(c => c.fails.some(f => ["fees", "wash", "chart"].includes(f.key))).slice(0, 15);
+    const sub = (c) => c.fails.filter(f => ["fees", "wash", "chart"].includes(f.key)).map(f => f.note).join(" | ");
+    showPanel(head(`<div class="pop-sec">Flagged as fake / botted · ${TF}</div>${coinList(fake, "Nothing flagged in this timeframe (or the fee/chart samples are still coming in).", sub)}`), anchor, { back });
+  } else if (name === "CATALYST") {
+    const cats = (STATE.themes.daily.catalysts || []);
+    showPanel(head(cats.map(c => `<button class="pop-item" data-cat="${esc(c.category)}"><span class="ic">◆</span>${esc(CAT_NICE[c.category] || c.label)}<kbd>${c.count}</kbd></button>`).join("")
+      || '<div class="pop-sec">No runners classified in this timeframe yet.</div>', `Catalyst mix · ${TF} · click one to see its coins`), anchor,
+      { back, after: (pop) => pop.querySelectorAll("[data-cat]").forEach(b => b.onclick = async (e) => {
+          e.stopPropagation(); const k = b.dataset.cat, d = await j(`/api/coins?${tfQ()}&catalyst=${encodeURIComponent(k)}&limit=30`);
+          showPanel(panelHtml({ dot: window.Synapse.AGENT_COLORS.CATALYST, title: esc(CAT_NICE[k] || k), sub: `${d.count} runners · ${TF}`,
+            body: `<button class="pop-item pop-back"><span class="ic">←</span>Back to CATALYST<kbd>⌫</kbd></button><div class="pop-sep"></div>${coinList(d.coins, "None.")}` }),
+            anchor, { back: { label: `Back to ${CAT_NICE[k] || k}`, fn: () => b.onclick(e) }, after: (p2) => { p2.querySelector(".pop-back").onclick = (ev) => { ev.stopPropagation(); agentPop("CATALYST", anchor); }; POP_ACTIONS.backspace = () => agentPop("CATALYST", anchor); } });
+        }) });
+  } else if (name === "THESIS") {
+    const dl = STATE.daily, h = STATE.hourly, sh = h && h.data.meta_shift;
+    const list = (xs) => `<ul class="pop-why">${(xs || []).map(x => `<li>${esc(x)}</li>`).join("") || "<li>—</li>"}</ul>`;
+    showPanel(head(dl ? `<div class="pop-sec">Daily thesis · ${ago(dl.ts)} ago · leader <b style="color:#7ee2a8">${esc(dl.leader || "—")}</b></div>
+      <div class="pop-why" style="padding-left:12px;white-space:pre-wrap">${esc(dl.text)}</div>
+      <div class="pop-sec" style="color:#7ee2a8">Look for</div>${list(dl.data.look_for)}<div class="pop-sec" style="color:#ff9aa9">Avoid</div>${list(dl.data.avoid)}
+      ${h ? `<div class="pop-sep"></div><div class="pop-sec">Hourly meta ${sh && sh.shift ? '<span class="pill fake" style="background:#4a1f45;color:#ff9de6">META SHIFT</span>' : ""}</div>
+      <div class="pop-why" style="padding-left:12px;white-space:pre-wrap">${esc(h.text)}</div>` : ""}` : '<div class="pop-sec">No thesis yet.</div>'), anchor, { back });
+  } else if (name === "KOLS") {
+    const [ks, buys] = await Promise.all([j("/api/kols"), j(`/api/coins?${tfQ()}&kols=1&limit=8`)]);
+    const kolRows = ks.map(k => `<button class="pop-item" data-kol="${esc(k.name)}" style="padding:6px 10px">${pfpHtml(k.pfp, k.name).replace('class="pfp"', 'class="pfp" style="width:30px;height:30px;font-size:11px"')}
+        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(k.name)}<br><span style="color:#8b8f98;font-size:11.5px">${esc((k.style || []).join(" · ") || k.status)}${k.summary.win_rate != null ? " · WR " + k.summary.win_rate + "%" : ""}</span></span><kbd>open ›</kbd></button>`).join("");
+    showPanel(head(`<div class="pop-sec">Your KOLs · click to open their profile</div>${kolRows || '<div class="pop-sec">No KOLs yet: add some in the KOL LAB below.</div>'}
+      <button class="pop-item" data-addkol><span class="ic">+</span>Add a KOL</button>
+      <div class="pop-sep"></div><div class="pop-sec">Recent KOL buys on runners · ${TF}</div>${coinList(buys.coins, "No tracked KOL buys in this timeframe.", (c) => "bought by " + c.kols.join(", "))}`), anchor,
+      { back, after: (pop) => {
+          pop.querySelectorAll("[data-kol]").forEach(b => b.onclick = (e) => { e.stopPropagation(); closePop(); $("#kollab").scrollIntoView({ behavior: "smooth", block: "start" }); setTimeout(() => zoomTo(b.dataset.kol), 650); });
+          pop.querySelector("[data-addkol]").onclick = (e) => { e.stopPropagation(); closePop(); openKolForm(null); };
+        } });
+  }
+}
+
+function sourcePop(name, anchor, back) {
+  const s = (STATE.sources || []).find(x => x.name === name); if (!s) return;
+  showPanel(panelHtml({ dot: s.ok ? "#39ff88" : "#ff4d6d", title: esc(s.name), sub: esc(SOURCE_BLURB[s.name.replace(/ \(demo\)$/, "")] || "Data source") + ` · ${esc(s.agent)}`,
+    body: `${back ? `<button class="pop-item pop-back"><span class="ic">←</span>${esc(back.label)}</button><div class="pop-sep"></div>` : ""}
+      <div class="pop-stats"><div><span>Status</span><b style="color:${s.ok ? "#7ee2a8" : "#ff9aa9"}">${s.ok ? "OK" : "Error"}</b></div><div><span>Latency</span><b>${s.latency_ms ? Math.round(s.latency_ms) + "ms" : "—"}</b></div>
+      <div><span>Calls</span><b>${s.calls}</b></div><div><span>Errors</span><b>${s.errors}</b></div>
+      <div><span>Last OK</span><b>${s.last_ok_ts ? ago(s.last_ok_ts) + " ago" : "—"}</b></div><div><span>Last error</span><b>${s.last_err_ts ? ago(s.last_err_ts) + " ago" : "—"}</b></div></div>
+      ${s.last_error ? `<div class="pop-sep"></div><div class="pop-sec">Last error</div><div class="pop-why" style="padding-left:12px;word-break:break-word">${esc(s.last_error)}</div>` : ""}
+      ${s.note ? `<div class="pop-sec">Note</div><div class="pop-why" style="padding-left:12px">${esc(s.note)}</div>` : ""}` }),
+    anchor, { after: (pop) => { const b = pop.querySelector(".pop-back"); if (b && back) { b.onclick = (e) => { e.stopPropagation(); back.fn(); }; POP_ACTIONS.backspace = back.fn; } } });
+}
+
+window.Synapse.onPick((hit, at) => hit.type === "theme" ? themePop(hit.name, at) : agentPop(hit.name, at));
 function closePop() { $("#coinpop").hidden = true; POP_MINT = null; }
-document.addEventListener("click", (e) => { if (POP_MINT && !e.target.closest("#coinpop")) closePop(); });
+document.addEventListener("click", (e) => {
+  // ignore clicks whose target was just replaced by a re-render inside the popover
+  if (POP_MINT && document.contains(e.target) && !e.target.closest("#coinpop")) closePop();
+});
 document.addEventListener("keydown", (e) => {
   if (!POP_MINT || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === "Escape") { closePop(); return; }
+  if (e.target.closest && e.target.closest("input, textarea")) return;
   const fn = POP_ACTIONS[e.key.toLowerCase()]; if (fn) { e.preventDefault(); fn(); }
 });
 window.addEventListener("scroll", () => POP_MINT && closePop(), { passive: true });

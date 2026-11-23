@@ -392,7 +392,7 @@ dialog h3 { margin: 0 0 12px; letter-spacing: .12em; font-size: 13px; color: var
 .pop-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; border-radius: 8px; border: 0; background: transparent;
   color: #ececf1; font: 500 13.5px Inter, system-ui, sans-serif; cursor: pointer; text-decoration: none; text-align: left; }
 .pop-item:hover, .pop-item:focus-visible { background: #ffffff12; outline: none; }
-.pop-item kbd { margin-left: auto; color: #8b8f98; font: 500 12px Inter, system-ui, sans-serif; }
+.pop-item kbd { margin-left: auto; white-space: nowrap; flex: none; color: #8b8f98; font: 500 12px Inter, system-ui, sans-serif; }
 .pop-item .ic { width: 16px; text-align: center; color: #a9adb6; }
 @media (max-width: 700px) {
   .pop { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; max-height: 75vh; border-radius: 16px; }

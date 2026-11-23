@@ -161,6 +161,12 @@ The dashboard's TIMEFRAME bar (7D … 1S) passes `?tf=` to `/api/state`. `api/se
 runners count by when they crossed the bar (`ts_100k`, else launch), launches by launch time. Add a timeframe
 there and in `TFS` in web/app.js.
 
+### Clickable Synapse + popovers
+Everything in the Synapse opens a Claude-style popover (`#coinpop`, web/app.js): narrative neurons -> `themePop`,
+agent blobs -> `agentPop` (SCOUT/HOLDERS/KOLS/FEES/CATALYST/THESIS), SENSORY INPUT cards -> `sourcePop`, tape rows
+and coin lists -> `openPop` (coin card; Backspace/← returns to the list it came from). Hit-testing lives in
+web/synapse.js `pick()`. Lists come from `/api/coins?tf=&theme=&catalyst=&real=&fail=&kols=&sort=`.
+
 ### A dashboard panel
 Add a `<section class="panel p-cyan" id="x">` in web/index.html, a grid-area in style.css, and a
 `renderX()` in app.js called from `refresh()`. Data comes from `/api/state`; add fields in

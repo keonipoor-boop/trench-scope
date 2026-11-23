@@ -16,6 +16,7 @@
     const ro = new ResizeObserver(resize); ro.observe(canvas); resize();
     for (const name of Object.keys(AGENT_COLORS)) S.agents.push(makeAgent(name));
     canvas.addEventListener("mousemove", onMove); canvas.addEventListener("mouseleave", () => { S.hover = null; tip.style.display = "none"; });
+    canvas.addEventListener("click", onClick);
     requestAnimationFrame(frame);
   }
 
@@ -99,8 +100,29 @@
     if (sig !== S._sig) { S._sig = sig; layout(); }
   }
 
+  // what's under the pointer: an agent blob (checked first, they float on top) or a narrative neuron
+  function pick(x, y) {
+    const t = (performance.now() - S.t0) / 1000;
+    for (const a of S.agents) {
+      const ay = a.y + Math.sin(t * 2 + a.seed) * 3;
+      if ((a.x - x) ** 2 + (ay - y) ** 2 < (a.size * 1.25) ** 2) return { type: "agent", name: a.name, x: a.x, y: ay };
+      // the agent's name pill sits to the right of the blob
+      if (x > a.x + a.size && x < a.x + a.size + 90 && Math.abs(y - (ay - 1)) < 10) return { type: "agent", name: a.name, x: a.x, y: ay };
+    }
+    const n = S.nodes.find(n => (n.x - x) ** 2 + (n.y - y) ** 2 < (n.r + 12) ** 2 ||
+      (Math.abs(x - n.x) < 70 && y > n.y + n.r + 6 && y < n.y + n.r + 30));  // or its label pill
+    return n ? { type: "theme", name: n.theme, x: n.x, y: n.y, node: n } : null;
+  }
+
+  function onClick(e) {
+    const r = S.canvas.getBoundingClientRect();
+    const hit = pick(e.clientX - r.left, e.clientY - r.top);
+    if (hit && S.onPick) { e.stopPropagation(); S.tip.style.display = "none"; S.onPick(hit, { left: r.left + hit.x, top: r.top + hit.y }); }
+  }
+
   function onMove(e) {
     const r = S.canvas.getBoundingClientRect(); const x = e.clientX - r.left, y = e.clientY - r.top;
+    S.canvas.style.cursor = pick(x, y) ? "pointer" : "default";
     const n = S.nodes.find(n => (n.x - x) ** 2 + (n.y - y) ** 2 < (n.r + 10) ** 2);
     S.hover = n || null;
     if (!n) { S.tip.style.display = "none"; return; }
@@ -110,7 +132,8 @@
       <span>hit rate</span><b>${n.hit_rate}%</b><span>momentum</span><b>${n.momentum}x</b>
       <span>share</span><b>${n.share}%</b><span>real</span><b>${n.real_pct == null ? "—" : n.real_pct + "%"}</b>
       <span>last hour</span><b>${n.h_runners} runners</b></div>
-      ${n.top && n.top.length ? `<div style="margin-top:4px;color:#5d7183">top: ${n.top.map(t => "$" + t.symbol).join(" ")}</div>` : ""}`;
+      ${n.top && n.top.length ? `<div style="margin-top:4px;color:#5d7183">top: ${n.top.map(t => "$" + t.symbol).join(" ")}</div>` : ""}
+      <div style="margin-top:4px;color:#22e6ff">click to see its coins</div>`;
   }
 
   function frame(now) {
@@ -227,5 +250,5 @@
   function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r);
     g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
 
-  window.Synapse = { init, update, AGENT_COLORS, PALETTE };
+  window.Synapse = { init, update, AGENT_COLORS, PALETTE, onPick: (fn) => { S.onPick = fn; } };
 })();
