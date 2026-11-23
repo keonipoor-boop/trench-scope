@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import statistics
 import time
 from collections import Counter, defaultdict
@@ -87,22 +88,93 @@ def _conf():
     return get_config().get("kol_research", {})
 
 
-def _helius_trades(wallet: str) -> list[dict]:
+def ensure_trade_tables():
+    db = get_db()
+    db.x("""CREATE TABLE IF NOT EXISTS kol_trades (wallet TEXT, sig TEXT, ts INTEGER, mint TEXT, side TEXT, tokens REAL,
+            sol REAL, usd REAL, PRIMARY KEY (wallet, sig))""")
+    db.x("CREATE INDEX IF NOT EXISTS ix_kol_trades_w ON kol_trades(wallet, ts)")
+    db.x("""CREATE TABLE IF NOT EXISTS kol_sync (wallet TEXT PRIMARY KEY, oldest_sig TEXT, done INTEGER DEFAULT 0,
+            source TEXT, updated_ts INTEGER)""")
+
+
+def _store(wallet: str, trades: list[dict]) -> int:
+    db = get_db()
+    n = 0
+    with db._lock:
+        for t in trades:
+            if not t.get("sig"):
+                continue
+            cur = db.conn.execute("INSERT OR IGNORE INTO kol_trades(wallet,sig,ts,mint,side,tokens,sol,usd) VALUES(?,?,?,?,?,?,?,?)",
+                                  (wallet, t["sig"], t.get("ts"), t["mint"], t["side"], t["tokens"], t["sol"], t["usd"]))
+            n += cur.rowcount
+        db.conn.commit()
+    return n
+
+
+def _stored(wallet: str) -> list[dict]:
+    return [dict(r) for r in get_db().q("SELECT * FROM kol_trades WHERE wallet=? ORDER BY ts", (wallet,))]
+
+
+def _sync_state(wallet: str) -> dict:
+    r = get_db().q("SELECT * FROM kol_sync WHERE wallet=?", (wallet,))
+    return dict(r[0]) if r else {"wallet": wallet, "oldest_sig": None, "done": 0}
+
+
+def _save_sync(wallet: str, **kw):
+    st = {**_sync_state(wallet), **kw, "updated_ts": int(time.time())}
+    get_db().x("""INSERT INTO kol_sync(wallet,oldest_sig,done,source,updated_ts) VALUES(?,?,?,?,?) ON CONFLICT(wallet) DO UPDATE SET
+                  oldest_sig=excluded.oldest_sig, done=excluded.done, source=excluded.source, updated_ts=excluded.updated_ts""",
+               (wallet, st.get("oldest_sig"), int(st.get("done") or 0), st.get("source"), st["updated_ts"]))
+
+
+_CONTINUE = re.compile(r"`before` parameter set to ([1-9A-HJ-NP-Za-km-z]{60,90})")
+
+
+def _helius_page(wallet: str, before: str | None) -> tuple[list[dict], str | None, bool]:
+    """One page of swaps. Returns (txs, next_before, exhausted). Helius answers 'continue from <sig>' when
+    a stretch of history has no swaps; we follow it."""
     from sources.helius import api_url
-    out, before = [], None
-    for _ in range(_conf().get("helius_pages", 5)):
-        q = f"/addresses/{wallet}/transactions?type=SWAP&limit=100" + (f"&before={before}" if before else "")
+    q = f"/addresses/{wallet}/transactions?type=SWAP&limit=100" + (f"&before={before}" if before else "")
+    try:
         txs = http.get(api_url(q), rate_key="helius_kol", per_min=120, retries=2)
-        if not isinstance(txs, list) or not txs:
+    except http.HTTPError as e:
+        m = _CONTINUE.search(str(e))
+        if m:
+            return [], m.group(1), False
+        raise
+    if not isinstance(txs, list) or not txs:
+        return [], None, True
+    return txs, txs[-1].get("signature"), len(txs) < 100
+
+
+def _helius_sync(wallet: str) -> None:
+    """New swaps first (until we reach ones we already have), then keep backfilling older history each
+    run until the wallet's very first swap: lifetime numbers are real lifetime."""
+    c = _conf()
+    known = {r["sig"] for r in get_db().q("SELECT sig FROM kol_trades WHERE wallet=? ORDER BY ts DESC LIMIT 300", (wallet,))}
+    before = None
+    for _ in range(c.get("forward_pages", 20)):
+        txs, nxt, done = _helius_page(wallet, before)
+        new = [tr for tr in (_parse_enhanced(t, wallet) for t in txs) if tr]
+        _store(wallet, new)
+        if done or any(t.get("signature") in known for t in txs) or not nxt:
             break
-        for t in txs:
-            tr = _parse_enhanced(t, wallet)
-            if tr:
-                out.append(tr)
-        before = txs[-1].get("signature")
-        if len(txs) < 100:
-            break
-    return out
+        before = nxt
+    st = _sync_state(wallet)
+    if st.get("done"):
+        return
+    first_row = get_db().q("SELECT sig FROM kol_trades WHERE wallet=? ORDER BY ts ASC LIMIT 1", (wallet,))
+    oldest = st.get("oldest_sig") or (first_row[0]["sig"] if first_row else None)
+    before, pages = oldest, 0
+    while pages < c.get("backfill_pages_per_run", 30):
+        txs, nxt, done = _helius_page(wallet, before)
+        pages += 1
+        _store(wallet, [tr for tr in (_parse_enhanced(t, wallet) for t in txs) if tr])
+        if done or not nxt:
+            _save_sync(wallet, oldest_sig=before, done=1, source="helius")
+            return
+        before = nxt
+    _save_sync(wallet, oldest_sig=before, done=0, source="helius")
 
 
 def _parse_enhanced(t: dict, wallet: str) -> dict | None:
@@ -133,6 +205,8 @@ def _rpc_trades(wallet: str) -> list[dict]:
         for r in res if isinstance(res, list) else []:
             tr = _parse_raw(r.get("result"), wallet)
             if tr:
+                sigs_ = (r.get("result") or {}).get("transaction", {}).get("signatures") or []
+                tr["sig"] = sigs_[0] if sigs_ else None
                 out.append(tr)
     return out
 
@@ -200,19 +274,37 @@ def _demo_trades(wallet: str) -> list[dict]:
     return out
 
 
-def fetch_trades(wallet: str) -> tuple[list[dict], str]:
+def coverage(wallet: str, trades: list[dict], src: str) -> dict:
+    st = _sync_state(wallet)
+    ts = [t["ts"] for t in trades if t.get("ts")]
+    return {"swaps": len(trades), "since_ts": min(ts) if ts else None, "source": src,
+            "complete": src == "demo" or bool(st.get("done"))}
+
+
+def fetch_trades(wallet: str) -> tuple[list[dict], str, dict]:
+    """All known swaps for a wallet: synced into the local trade store, then read back in full."""
     cfg = get_config()
+    ensure_trade_tables()
     if cfg.demo:
-        return _demo_trades(wallet), "demo"
+        tr = _demo_trades(wallet)
+        return tr, "demo", coverage(wallet, tr, "demo")
     try:
         if env("HELIUS_API_KEY"):
-            tr, src = _helius_trades(wallet), "helius"
+            _helius_sync(wallet)
+            src = "helius"
         else:
-            tr, src = _rpc_trades(wallet), "public-rpc"
-        source_result("kol_research", "KOLS", True, note=f"{src}: {len(tr)} swaps for {wallet[:6]}")
-        return tr, src
+            _store(wallet, _rpc_trades(wallet))
+            src = "public-rpc"
+        tr = _stored(wallet)
+        cov = coverage(wallet, tr, src)
+        source_result("kol_research", "KOLS", True,
+                      note=f"{src}: {len(tr)} swaps for {wallet[:6]}" + ("" if cov["complete"] else " (backfilling)"))
+        return tr, src, cov
     except Exception as e:
         source_result("kol_research", "KOLS", False, error=str(e))
+        tr = _stored(wallet)  # whatever we have is still useful
+        if tr:
+            return tr, "stored", coverage(wallet, tr, "stored")
         raise
 
 
@@ -293,8 +385,18 @@ def positions(trades: list[dict], info: dict, sol_usd: float) -> list[dict]:
         end = sells[-1]["ts"] if closed and sells else now
         pnl = ret + (0 if closed else unreal) - inv
         sym = ti.get("symbol") or mint[:6]
+        # each sell: multiple vs average buy price, share of the bag sold, time since entry (exit strategy)
+        avg_px = inv / bought if bought else 0
+        exits = []
+        for t in sells:
+            if t["tokens"] and avg_px:
+                tok = min(t["tokens"], bought)
+                exits.append({"x": round(sol_of(t) / t["tokens"] / avg_px, 3), "frac": round(min(1, t["tokens"] / bought), 3),
+                              "t": int(t["ts"] - first["ts"]) if t.get("ts") and first.get("ts") else None,
+                              "ts": t.get("ts"), "sol": round(sol_of(t), 4),
+                              "pnl": round(sol_of(t) - tok * avg_px, 4)})  # realized vs average cost
         out.append({
-            "end_ts": int(end) if end else None,
+            "end_ts": int(end) if end else None, "exits": exits, "cost_left_sol": round(left * avg_px, 4),
             "mint": mint, "symbol": sym, "name": ti.get("name"), "launchpad": ti.get("launchpad"),
             "themes": narratives.tag({"name": ti.get("name"), "symbol": sym}),
             "first_buy_ts": first.get("ts"), "invested_sol": round(inv, 3), "returned_sol": round(ret, 3),
@@ -353,19 +455,30 @@ def stats(pos: list[dict], trades: list[dict]) -> dict:
 PERIODS = [("lifetime", None), ("month", 30 * 86400), ("week", 7 * 86400), ("day", 86400)]
 
 
-def pnl_periods(pos: list[dict], sol_usd: float) -> dict:
-    """PnL per period (positions opened in the period): lifetime, month, week, day."""
+def pnl_periods(pos: list[dict], sol_usd: float, trades: list[dict] | None = None) -> dict:
+    """PnL per period, accurate to the period:
+    realized   = profit on sells made INSIDE the period (sale proceeds - average cost of the tokens sold)
+    unrealized = current value - cost of what's still held (lifetime: all bags; periods: bags opened in the period)
+    win rate   = positions whose final sell happened inside the period."""
     now, out = time.time(), {}
     for key, span in PERIODS:
-        ps = [p for p in pos if span is None or (p.get("first_buy_ts") or 0) >= now - span]
-        closed = [p for p in ps if p["closed"]]
-        pnl = round(sum(p["pnl_sol"] for p in ps), 2)
-        best = max(ps, key=lambda p: p["pnl_sol"], default=None)
-        out[key] = {"pnl_sol": pnl, "pnl_usd": round(pnl * sol_usd) if sol_usd else None,
-                    "invested_sol": round(sum(p["invested_sol"] for p in ps), 2), "positions": len(ps),
-                    "win_rate": round(sum(1 for p in closed if p["pnl_sol"] > 0) / len(closed) * 100) if closed else None,
-                    "roi_pct": round(pnl / sum(p["invested_sol"] for p in ps) * 100) if ps and sum(p["invested_sol"] for p in ps) else None,
-                    "best": {"symbol": best["symbol"], "pnl_sol": best["pnl_sol"]} if best and best["pnl_sol"] > 0 else None}
+        start = 0 if span is None else now - span
+        realized = sum(e["pnl"] for p in pos for e in p.get("exits") or [] if (e.get("ts") or 0) >= start and e.get("pnl") is not None)
+        held = [p for p in pos if not p["closed"] and (span is None or (p.get("first_buy_ts") or 0) >= start)]
+        unreal = sum(p["unrealized_sol"] - p.get("cost_left_sol", 0) for p in held)
+        closed_in = [p for p in pos if p["closed"] and (p.get("end_ts") or 0) >= start]
+        tr = [t for t in (trades or []) if (t.get("ts") or 0) >= start]
+        per_pos = sorted(((sum(e["pnl"] for e in p.get("exits") or [] if (e.get("ts") or 0) >= start), p["symbol"]) for p in pos),
+                         reverse=True)
+        bought = sum(t["sol"] for t in tr if t["side"] == "buy")
+        total = realized + unreal
+        out[key] = {"pnl_sol": round(total, 2), "realized_sol": round(realized, 2), "unrealized_sol": round(unreal, 2),
+                    "pnl_usd": round(total * sol_usd) if sol_usd else None,
+                    "trades": len(tr), "volume_sol": round(sum(t["sol"] for t in tr), 2), "bought_sol": round(bought, 2),
+                    "positions": len(closed_in) + len(held),
+                    "win_rate": round(sum(1 for p in closed_in if p["pnl_sol"] > 0) / len(closed_in) * 100) if closed_in else None,
+                    "roi_pct": round(total / bought * 100) if bought else None,
+                    "best": {"symbol": per_pos[0][1], "pnl_sol": round(per_pos[0][0], 2)} if per_pos and per_pos[0][0] > 0 else None}
     return out
 
 
@@ -508,10 +621,10 @@ def _research(name: str) -> dict | None:
     set_status(name, "running")
     with AgentRun("KOLS", f"researching {name}") as run:
         wallets = [w for w in [k.get("wallet")] + k["side_wallets"] if w]
-        per_wallet, all_trades, src = {}, [], None
+        per_wallet, all_trades, src, covs = {}, [], None, {}
         for w in wallets:
             try:
-                tr, src = fetch_trades(w)
+                tr, src, covs[w] = fetch_trades(w)
             except Exception as e:
                 log("KOLS", f"{name}: {w[:6]}… fetch failed: {e}", "warn")
                 tr = []
@@ -529,9 +642,10 @@ def _research(name: str) -> dict | None:
         sides = side_wallet_insights(per_wallet, k.get("wallet"))
         text, by = describe(k, s, style, risk, sides)
         recent = sorted(all_pos, key=lambda p: -(p.get("first_buy_ts") or 0))[:15]
-        periods = pnl_periods(all_pos, sol_usd)
-        series = sorted([[p.get("first_buy_ts"), p.get("end_ts"), p["pnl_sol"], p["symbol"]] for p in all_pos
-                         if p.get("first_buy_ts") and p.get("end_ts")], key=lambda r: r[1])
+        periods = pnl_periods(all_pos, sol_usd, all_trades)
+        # realized PnL events by sell time: the chart for any period is the running sum inside it
+        series = sorted([[e["ts"], e["pnl"], p["symbol"]] for p in all_pos for e in p.get("exits") or []
+                         if e.get("ts") and e.get("pnl") is not None], key=lambda r: r[0])
         # what they're holding right now (open positions that still have some value): the KOL's moons
         holdings = sorted([p for p in all_pos if not p["closed"] and (p["unrealized_sol"] >= _conf().get("min_holding_sol", 0.01)
                                                                        or not info.get(p["mint"], {}).get("usd_price"))],
@@ -545,7 +659,16 @@ def _research(name: str) -> dict | None:
             "stats": s, "style": style, "risk": risk, "side_insights": sides,
             "description": text, "description_by": by, "data_source": src, "sol_usd": sol_usd,
             "recent": recent, "holdings": holdings, "periods": periods, "pnl_series": series,
+            "history": {"complete": bool(covs) and all(c["complete"] for c in covs.values()),
+                        "swaps": sum(c["swaps"] for c in covs.values()),
+                        "since_ts": min([c["since_ts"] for c in covs.values() if c["since_ts"]], default=None),
+                        "wallets": covs},
         }
+        try:  # STRATEGY LIBRARY: rebuild this KOL's strategy, version it if it changed
+            from core import strategy
+            profile["strategy"] = strategy.update(name, k, all_pos, s, style, risk, sol_usd)
+        except Exception as e:
+            log("KOLS", f"strategy for {name} failed: {e}", "warn")
         set_status(name, "done", profile)
         run.result = f"{name}: {s.get('positions', 0)} positions, {', '.join(style)}"
         log("KOLS", f"profiled {name}: {', '.join(style)} | {', '.join(risk)} ({len(all_trades)} swaps via {src})")

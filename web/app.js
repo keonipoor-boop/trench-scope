@@ -525,14 +525,22 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && ZOOMED &
 $("#kolsun").onclick = (e) => { e.stopPropagation(); openKolForm(null); };
 requestAnimationFrame(spaceFrame);
 
+function historyLine(h) {
+  if (!h) return "";
+  const since = h.since_ts ? new Date(h.since_ts * 1000).toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" }) : "—";
+  return `<div class="pnl-hist ${h.complete ? "ok" : ""}">${h.complete ? "✓ Full wallet history" : "◌ Backfilling wallet history"} · ${Number(h.swaps || 0).toLocaleString()} swaps · back to ${since}
+    ${h.complete ? "" : " · lifetime numbers grow as older trades load (about 3,000 swaps per wallet per hour)"}</div>`;
+}
+
 function pnlCard(p) {
   const per = (p.periods || {})[KPERIOD];
   if (!per) return "";
   const lbl = KPERIODS.find(x => x[0] === KPERIOD)[1];
   const start = { lifetime: 0, month: 30 * 86400, week: 7 * 86400, day: 86400 }[KPERIOD];
   const now = Date.now() / 1000;
+  // pnl_series = realized PnL per sell [ts, pnl, symbol]: the chart is the running sum inside the period
   const rows = (p.pnl_series || []).filter(r => !start || r[0] >= now - start);
-  let cum = 0; const pts = rows.map(r => [r[1], (cum += r[2])]);
+  let cum = 0; const pts = rows.map(r => [r[0], (cum += r[1])]);
   const W = 560, H = 90;
   let path = "", area = "";
   if (pts.length > 1) {
@@ -545,9 +553,11 @@ function pnlCard(p) {
   const col = per.pnl_sol >= 0 ? "#7ee2a8" : "#ff9aa9";
   return `<div class="pnl-card">
     <div class="pnl-top"><div><span class="pnl-l">PNL · ${lbl}</span><b style="color:${col}">${solFmt(per.pnl_sol)}</b>
-      <span class="pnl-usd">${per.pnl_usd != null ? (per.pnl_usd >= 0 ? "+$" : "-$") + Math.abs(per.pnl_usd).toLocaleString() : ""}${per.roi_pct != null ? ` · ${per.roi_pct >= 0 ? "+" : ""}${per.roi_pct}% ROI` : ""}</span></div>
-      <div class="pnl-mini"><div><span>Win rate</span><b>${per.win_rate ?? "—"}${per.win_rate != null ? "%" : ""}</b></div><div><span>Coins</span><b>${per.positions}</b></div>
-        <div><span>Invested</span><b>${per.invested_sol} SOL</b></div><div><span>Best</span><b>${per.best ? "$" + esc(per.best.symbol) + " " + solFmt(per.best.pnl_sol) : "—"}</b></div></div></div>
+      <span class="pnl-usd">${per.pnl_usd != null ? (per.pnl_usd >= 0 ? "+$" : "-$") + Math.abs(per.pnl_usd).toLocaleString() : ""}${per.roi_pct != null ? ` · ${per.roi_pct >= 0 ? "+" : ""}${per.roi_pct}% ROI` : ""}</span>
+      <span class="pnl-usd">realized ${solFmt(per.realized_sol)} · unrealized ${solFmt(per.unrealized_sol)}</span></div>
+      <div class="pnl-mini"><div><span>Win rate</span><b>${per.win_rate ?? "—"}${per.win_rate != null ? "%" : ""}</b></div><div><span>Trades</span><b>${per.trades ?? "—"}</b></div>
+        <div><span>Volume</span><b>${per.volume_sol ?? "—"} SOL</b></div><div><span>Best</span><b>${per.best ? "$" + esc(per.best.symbol) + " " + solFmt(per.best.pnl_sol) : "—"}</b></div></div></div>
+    ${historyLine(p.history)}
     ${path ? `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="pnl-svg">${area}<path d="${path}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`
       : `<div class="dim" style="padding:8px 0">${per.positions ? "not enough closed trades to chart" : "no trades in this period"}</div>`}
   </div>`;
@@ -657,6 +667,75 @@ $("#koladd-form").addEventListener("submit", async (e) => {
   } catch (err) { $("#kol-msg").textContent = "Save failed: " + err; }
 });
 loadKols(); setInterval(loadKols, 6000);
+
+// ---- STRATEGY LIBRARY: the AI's living model of each KOL's strategy, versioned ----------------
+let LIB = [], LIB_SEL = null, LIB_VER = null;
+document.querySelectorAll(".kl-tabs button").forEach(b => b.onclick = () => {
+  const lib = b.dataset.tab === "library";
+  document.querySelectorAll(".kl-tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+  $("#kolstage").hidden = lib; $("#libstage").hidden = !lib;
+  if (lib) loadLibrary();
+});
+
+async function loadLibrary() {
+  try { LIB = await j("/api/strategies"); } catch { return; }
+  const now = Date.now() / 1000;
+  $("#libshelf").innerHTML = LIB.length ? LIB.map((x, i) => `<button class="codex ${x.name === LIB_SEL ? "sel" : ""}" data-name="${esc(x.name)}" style="--d:${(i % 5) * 0.7}s">
+      <div class="cx-cover">${pfpHtml(x.pfp, x.name)}<span class="cx-ver">v${x.version}</span></div>
+      <div class="cx-meta"><b>${esc(x.name)}</b><span>${esc(x.title || "")}</span>
+        <div class="cx-tags">${x.shift.length ? '<span class="pill fake" style="margin:0">STRATEGY SHIFT</span>' : ""}
+          ${now - x.ts < 86400 && x.version > 1 ? '<span class="pill wait" style="margin:0;background:#2b2147;color:#c9b8ff">UPDATED</span>' : ""}
+          <span class="cx-conf"><i style="width:${x.confidence || 0}%"></i></span><em>${x.confidence || 0}% conf</em></div>
+        <span class="cx-when">checked ${ago(x.checked_ts || x.ts)} ago</span></div></button>`).join("")
+    : `<div class="empty" style="padding:40px 12px">no strategies yet<br><br><span class="dim">add KOLs in the solar system tab; the agent writes a strategy for each one after studying their wallets</span></div>`;
+  document.querySelectorAll(".codex").forEach(el => el.onclick = () => openCodex(el.dataset.name));
+  if (!LIB_SEL && LIB.length) openCodex(LIB[0].name); else if (LIB_SEL) openCodex(LIB_SEL, LIB_VER, true);
+}
+
+async function openCodex(name, ver, quiet) {
+  LIB_SEL = name; LIB_VER = ver || null;
+  document.querySelectorAll(".codex").forEach(el => el.classList.toggle("sel", el.dataset.name === name));
+  let d; try { d = await cj("/api/strategies/" + encodeURIComponent(name), quiet ? 20000 : 3000); } catch { return; }
+  const v = d.versions.find(x => x.version === ver) || d.versions[0], sp = v.spec, e = sp.entry || {}, x = sp.exit || {}, r = sp.risk || {};
+  const latest = v === d.versions[0];
+  const mcap = (a, b) => `${usd(a)} – ${usd(b)}`;
+  const ladder = (x.tp_ladder || []), maxS = Math.max(1, ...ladder.map(l => l.sells));
+  $("#libbook").innerHTML = `
+    <div class="bk-head"><div><span class="bk-k">STRATEGY CODEX · ${esc(name)}</span><h3>${esc(sp.title || "")}</h3>
+      <span class="dim">v${v.version}${latest ? " (current)" : ""} · formed ${ago(v.ts)} ago · last checked ${ago(v.checked_ts || v.ts)} ago · re-checked hourly · ${sp.sample?.closed ?? 0} closed trades</span></div>
+      <div class="bk-conf"><b>${sp.confidence || 0}%</b><span>confidence</span></div></div>
+    ${(sp.shift || []).length ? `<div class="bk-shift">⚡ <b>Strategy shift in progress.</b> The last 7 days differ from their long-run pattern: <ul>${sp.shift.map(s => `<li>${esc(s)}</li>`).join("")}</ul>If it holds, the next hourly check writes a new version.</div>` : ""}
+    <div class="bk-grid">
+      <section><h4>ENTRY</h4><dl>
+        <dt>Market cap</dt><dd>${mcap(e.mcap_low, e.mcap_high)} <i>typ. ${usd(e.mcap_mid)}</i></dd>
+        <dt>After launch</dt><dd>${dur(e.age_low_s)} – ${dur(e.age_high_s)} <i>typ. ${dur(e.age_mid_s)}</i></dd>
+        <dt>Size</dt><dd>${e.size_low != null ? e.size_low.toFixed(2) + " – " + e.size_high.toFixed(2) + " SOL" : "—"} <i>typ. ${e.size_mid != null ? e.size_mid.toFixed(2) : "—"}</i></dd>
+        <dt>Themes</dt><dd>${(e.themes || []).map(esc).join(", ") || "—"}</dd>
+        <dt>Launchpads</dt><dd>${(e.launchpads || []).map(esc).join(", ") || "—"}</dd></dl></section>
+      <section><h4>EXIT STRATEGY</h4><dl>
+        <dt>First take-profit</dt><dd>${x.first_sell_x != null ? x.first_sell_x + "x" : "—"}${x.first_sell_pct != null ? ` · sells ~${x.first_sell_pct}%` : ""} <i>${dur(x.first_sell_after_s)} in</i></dd>
+        <dt>One-shot exits</dt><dd>${x.single_exit_pct != null ? x.single_exit_pct + "% of trades" : "—"}</dd>
+        <dt>Initials out</dt><dd>${x.initials_out_pct != null ? x.initials_out_pct + "% of winners" : "—"}</dd>
+        <dt>Keeps a runner bag</dt><dd>${x.runner_bag_pct != null ? x.runner_bag_pct + "% of winners" : "—"}</dd>
+        <dt>Stop-loss</dt><dd>${x.stop_loss_x != null ? Math.round((x.stop_loss_x - 1) * 100) + "%" : "—"} <i>after ${dur(x.cut_after_s)}</i></dd>
+        <dt>Rides to zero</dt><dd>${x.rides_to_zero_pct != null ? x.rides_to_zero_pct + "% of losers" : "—"}</dd>
+        <dt>Holds winners</dt><dd>${dur(x.win_hold_s)} <i>max ~${dur(x.max_hold_s)}</i></dd></dl>
+        <div class="bk-ladder"><span class="bk-k">TAKE-PROFIT LADDER · where they sell</span>
+          ${ladder.map(l => `<div class="lad"><span>${esc(l.band)}</span><div><i style="width:${l.sells / maxS * 100}%"></i></div><em>${l.sells} sells · ~${l.avg_frac}% of bag</em></div>`).join("") || '<div class="dim">no profitable sells yet</div>'}</div></section>
+      <section><h4>RISK</h4><dl>
+        <dt>Win rate</dt><dd>${r.win_rate != null ? r.win_rate + "%" : "—"}</dd><dt>Avg winner</dt><dd>${r.avg_win_x ? r.avg_win_x + "x" : "—"}</dd>
+        <dt>Median loser</dt><dd>${r.median_loss_pct != null ? r.median_loss_pct + "%" : "—"}</dd>
+        <dt>Sizing</dt><dd>${r.size_cv == null ? "—" : r.size_cv < 0.5 ? "consistent" : "erratic"}</dd>
+        <dt>Trades / day</dt><dd>${r.trades_per_day ?? "—"}</dd><dt>Open bags -50%</dt><dd>${r.bag_hold_pct != null ? r.bag_hold_pct + "%" : "—"}</dd></dl>
+        <div class="tags" style="margin-top:8px">${tagsHtml(sp.style, sp.risk_labels)}</div></section>
+    </div>
+    <section class="bk-play"><h4>PLAYBOOK <i>${sp.playbook_by === "claude" ? "written by Claude" : "auto-written"}</i></h4><div>${esc(sp.playbook || (sp.rules || []).map(r => "• " + r).join("\n"))}</div></section>
+    <section class="bk-hist"><h4>VERSION HISTORY <i>a new version is written only when their strategy actually changes</i></h4>
+      ${d.versions.map(h => `<button class="ver ${h === v ? "sel" : ""}" data-v="${h.version}"><b>v${h.version}</b><span>${new Date(h.ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+        <ul>${h.changes.map(c => `<li>${esc(c)}</li>`).join("")}</ul></button>`).join("")}</section>`;
+  document.querySelectorAll("#libbook .ver").forEach(b => b.onclick = () => openCodex(name, +b.dataset.v));
+}
+setInterval(() => { if (!$("#libstage").hidden) loadLibrary(); }, 30000);
 
 // ---- coin popover (Claude-style menu card) ------------------------------------------
 function fakeBlock(c, compact) {

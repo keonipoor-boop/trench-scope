@@ -334,6 +334,26 @@ def kols_list():
 
 
 _HANDLE = _re.compile(r"^[A-Za-z0-9_]{1,15}$")
+@app.get("/api/strategies")
+def strategies_list():
+    from core import strategy, kol_research
+    pf = {k["name"]: k for k in kol_research.list_kols()}
+    out = strategy.library()
+    for x in out:
+        h = kol_research.handle_of(pf.get(x["name"]) or {})
+        x["pfp"] = f"/api/pfp/{h}" if h else None
+    return out
+
+
+@app.get("/api/strategies/{name}")
+def strategy_detail(name: str):
+    from core import strategy
+    v = strategy.versions(name)
+    if not v:
+        raise HTTPException(404, "no strategy yet")
+    return {"name": name, "versions": v}
+
+
 @app.get("/api/kols/{name}")
 def kol_detail(name: str):
     from core import kol_research
@@ -383,8 +403,9 @@ def kol_research_now(name: str, req: Request):
 def kol_delete(name: str, req: Request):
     if not _can_edit(req):
         raise HTTPException(403, "wrong or missing admin password")
-    from core import kol_research
+    from core import kol_research, strategy
     kol_research.delete_kol(name)
+    strategy.delete(name)
     return {"ok": True}
 
 

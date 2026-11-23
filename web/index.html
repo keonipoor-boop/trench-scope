@@ -128,7 +128,13 @@
   <!-- KOL LAB ------------------------------------------------------------------>
   <section class="panel p-mag" id="kollab">
     <header>◆ KOL LAB <i>— paste a KOL's wallets · the agent studies what they buy, their style and risk management</i>
-      <span class="hdr-r"><button id="btn-addkol">+ ADD KOL</button></span></header>
+      <span class="hdr-r"><span class="kl-tabs" role="tablist"><button role="tab" data-tab="system" aria-selected="true">◉ SOLAR SYSTEM</button><button role="tab" data-tab="library" aria-selected="false">✦ STRATEGY LIBRARY</button></span>
+      <button id="btn-addkol">+ ADD KOL</button></span></header>
+    <div class="lib-stage" id="libstage" hidden>
+      <div class="lib-nebula"></div>
+      <div class="lib-shelf" id="libshelf"></div>
+      <article class="lib-book" id="libbook"><div class="empty">the library fills itself as the agent studies your KOLs</div></article>
+    </div>
     <div class="kol-stage" id="kolstage">
       <div class="kol-space" id="kolspace">
         <div class="kol-orbit" style="--r:1"></div><div class="kol-orbit" style="--r:2"></div><div class="kol-orbit" style="--r:3"></div>

@@ -70,7 +70,7 @@ def request(method: str, url: str, *, rate_key: str | None = None, per_min: floa
             time.sleep(min(float(ra), 30) if ra and ra.replace(".", "").isdigit() else min(2 ** (attempt + 1), 8))
             continue
         if r.status_code >= 400:
-            raise HTTPError(f"HTTP {r.status_code}: {r.text[:200]}", r.status_code)
+            raise HTTPError(f"HTTP {r.status_code}: {r.text[:500]}", r.status_code)
         ctype = r.headers.get("content-type", "")
         if "json" in ctype or r.text[:1] in "[{":
             try:

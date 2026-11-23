@@ -158,6 +158,20 @@ X API photo when `X_BEARER_TOKEN` is set, else unavatar.io; misses retried hourl
 (web/app.js `loadKols`/`spaceFrame`/`zoomTo`): KOLs orbit the core on 3 rings, ring colour = style
 (`STYLE_COLORS`), hover pauses the orbit, click zooms and opens the profile, Esc/✕ zooms out.
 
+### KOL trade history + PnL
+Every wallet's swaps are stored in `kol_trades` (sync state in `kol_sync`). With Helius, each research run fetches
+new swaps (`forward_pages`) and backfills older ones (`backfill_pages_per_run`, ~3,000 swaps/wallet/hour, following
+Helius' "continue with before=<sig>" replies) until the first swap; then `history.complete` is true and lifetime
+is real lifetime. `pnl_periods()`: realized = sells inside the period vs average cost; unrealized = held bags;
+`pnl_series` = realized PnL per sell. Without Helius the public RPC adds a small sample per run (marked incomplete).
+
+### STRATEGY LIBRARY
+`core/strategy.py`, run at the end of every KOL research. `build_spec()` = entry, exit (`exit_model()`: take-profit
+ladder, first sell, initials out, runner bag, stop-loss, time stop), risk, rules, confidence. `update()` diffs against
+the latest version (`TRACKED` thresholds) and writes a new version + changelog only on a meaningful change; it also
+flags a 7-day "shift". Stored in `kol_strategies`; served by `/api/strategies[/<name>]`; UI is the KOL LAB's
+STRATEGY LIBRARY tab (`loadLibrary`/`openCodex` in app.js).
+
 ### Timeframes
 The dashboard's TIMEFRAME bar (7D … 1S) passes `?tf=` to `/api/state`. `api/server.py:TIMEFRAMES` lists them;
 runners count by when they crossed the bar (`ts_100k`, else launch), launches by launch time. Add a timeframe
