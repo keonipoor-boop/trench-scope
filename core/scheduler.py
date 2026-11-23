@@ -40,6 +40,8 @@ class Scheduler:
             if now - last_scan >= every:
                 last_scan = now
                 self._run("scan", pipeline.scan)
+                from core import kol_research  # KOL LAB: refresh stale profiles after each scan
+                self._run("kol_research", kol_research.research_due)
                 # fresh install / restart: don't make people wait until 8am for a thesis
                 for kind, max_age in (("daily", 86400), ("hourly", 3600)):
                     t = thesis.latest(kind)

@@ -255,6 +255,90 @@ def _restart():
     os.execv(sys.executable, args)
 
 
+# ---- KOL LAB --------------------------------------------------------------------
+import re as _re
+
+_WALLET = _re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+_kol_lock = threading.Lock()
+
+
+def _kol_bg(name):
+    from core import kol_research
+
+    def go():
+        with _kol_lock:
+            kol_research.research(name)
+    threading.Thread(target=go, daemon=True).start()
+
+
+@app.get("/api/kols")
+def kols_list():
+    from core import kol_research
+    out = []
+    for k in kol_research.list_kols():
+        p = kol_research.get_profile(k["name"]) or {}
+        s = p.get("stats") or {}
+        out.append({**k, "status": p.get("status") or "new", "ts": p.get("ts"), "style": p.get("style") or [],
+                    "risk": p.get("risk") or [], "pfp": (p.get("x") or {}).get("pfp") or
+                    (f"https://unavatar.io/x/{kol_research.handle_of(k)}" if kol_research.handle_of(k) else None),
+                    "summary": {x: s.get(x) for x in ("positions", "win_rate", "median_size_sol", "total_pnl_sol")}})
+    return out
+
+
+@app.get("/api/kols/{name}")
+def kol_detail(name: str):
+    from core import kol_research
+    k = next((x for x in kol_research.list_kols() if x["name"] == name), None)
+    if not k:
+        raise HTTPException(404, "unknown KOL")
+    return {"kol": k, "profile": kol_research.get_profile(name)}
+
+
+@app.post("/api/kols")
+async def kol_save(req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import kol_research
+    b = await req.json()
+    name = (b.get("name") or "").strip()[:40]
+    if not name:
+        raise HTTPException(400, "name required")
+    sides = b.get("side_wallets") or []
+    if isinstance(sides, str):
+        sides = _re.split(r"[\s,]+", sides)
+    wallet = (b.get("wallet") or "").strip()
+    sides = [w.strip() for w in sides if w.strip() and w.strip() != wallet]
+    bad = [w for w in [wallet] + sides if w and not _WALLET.match(w)]
+    if bad:
+        raise HTTPException(400, f"not a Solana address: {bad[0][:50]}")
+    if not wallet and not sides:
+        raise HTTPException(400, "add at least one wallet")
+    tw = (b.get("twitter") or "").strip().lstrip("@")
+    if tw and not tw.startswith("http"):
+        tw = f"https://x.com/{tw}"
+    kol_research.save_kol({"name": name, "twitter": tw or None, "wallet": wallet or None,
+                           "side_wallets": list(dict.fromkeys(sides))})
+    _kol_bg(name)
+    return {"ok": True, "researching": True}
+
+
+@app.post("/api/kols/{name}/research")
+def kol_research_now(name: str, req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    _kol_bg(name)
+    return {"ok": True}
+
+
+@app.delete("/api/kols/{name}")
+def kol_delete(name: str, req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import kol_research
+    kol_research.delete_kol(name)
+    return {"ok": True}
+
+
 @app.get("/api/version")
 def version():
     return updates.status()

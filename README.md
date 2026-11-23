@@ -79,6 +79,19 @@ to expose the dashboard.
 PumpPortal only sees launches while the app is running, so hit rates per theme get more accurate
 after the app has been on for a day or so. Migrated coins and runners are backfilled from GeckoTerminal right away.
 
+## KOL LAB
+
+Click **+ ADD KOL**, then paste the KOL's name, X handle, main wallet and any side wallets. A research agent
+pulls their swap history and builds a profile with:
+- what they buy: entry market cap, how soon after launch, themes, launchpads
+- how they trade: size, hold time, trades per day, active hours
+- risk management: win rate, average winner, median loser, whether they cut losers or hold bags, whether they scale out, how consistent their sizing is
+- side wallets: whether a side wallet buys before the main one
+- a written profile, and their X profile picture
+
+The profile refreshes every 6 hours. With a Helius key it reads hundreds of swaps per wallet; without one it
+reads a small sample from the public Solana RPC.
+
 ## What it checks
 
 - **Runner:** ATH market cap ≥ $100k (`pipeline.runner_ath_usd`). ATH comes from GeckoTerminal

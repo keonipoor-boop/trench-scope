@@ -144,6 +144,15 @@ cheap refresh. Words that spike in runners but belong to no theme surface as "em
   Needs `HELIUS_API_KEY`. Each wallet's last `sources.kols.tx_limit` swaps are pulled once per scan.
 - `data/celebrities.json`: lowercase X handles. A coin whose twitter link is a status by one of these → CELEBRITY TWEET.
 
+### KOL LAB (research agent)
+`core/kol_research.py`. KOLs live in `kols.json` (data dir) as `{name, twitter, wallet, side_wallets: [...]}`;
+the dashboard's KOL LAB edits them via `/api/kols`. For each KOL it pulls swaps for every wallet (Helius enhanced
+txs, else a small public-RPC sample; demo mode synthesizes), rebuilds positions, enriches tokens via Jupiter, then
+computes stats -> `archetype()` labels (style + risk) -> `describe()` (Claude if keyed, else template) and
+`side_wallet_insights()` (does a side wallet buy before main?). Profiles are stored in the `kol_profiles` table and
+refreshed every `kol_research.refresh_h` by the scheduler. Add a label: edit `archetype()`. Add a stat: `stats()`
+plus a cell in `openKol()` (web/app.js). Profile pictures: X API when `X_BEARER_TOKEN` is set, else unavatar.io/x/<handle>.
+
 ### Timeframes
 The dashboard's TIMEFRAME bar (7D … 1S) passes `?tf=` to `/api/state`. `api/server.py:TIMEFRAMES` lists them;
 runners count by when they crossed the bar (`ts_100k`, else launch), launches by launch time. Add a timeframe

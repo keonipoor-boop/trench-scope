@@ -61,6 +61,13 @@
     "look_for_n": 4
   },
 
+  "kol_research": {
+    "refresh_h": 6,
+    "helius_pages": 5,
+    "rpc_url": "https://api.mainnet-beta.solana.com",
+    "rpc_sample": 60
+  },
+
   "llm": {
     "model": "claude-opus-5-5",
     "effort": "low",

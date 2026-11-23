@@ -334,3 +334,129 @@ loadMeta(); setInterval(loadMeta, 5 * 60 * 1000);
 window.Synapse.init($("#syncanvas"), $("#syntip"));
 refresh(); pollEvents();
 renderTfBar(); scheduleRefresh(); setInterval(pollEvents, 3000);
+
+// ---- KOL LAB ------------------------------------------------------------------------
+let KOLS = [], KOL_SEL = null, ADMIN_PW = "";
+const dur = (s) => s == null ? "—" : s >= 86400 ? (s / 86400).toFixed(1) + "d" : s >= 3600 ? (s / 3600).toFixed(1) + "h" : s >= 60 ? Math.round(s / 60) + "m" : Math.round(s) + "s";
+const initials = (n) => esc((n || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?");
+const pfpHtml = (url, name, big) => url && /^https:\/\//.test(url)
+  ? `<img class="pfp${big ? " big" : ""}" src="${esc(url)}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;pfp${big ? " big" : ""}&quot;>${initials(name)}</div>'">`
+  : `<div class="pfp${big ? " big" : ""}">${initials(name)}</div>`;
+const GOOD_RISK = ["Cuts losers fast", "Scales out", "Consistent sizing", "High win rate"];
+const tagsHtml = (style, risk) => (style || []).map(t => `<span class="tag s">${esc(t)}</span>`).join("") +
+  (risk || []).map(t => `<span class="tag ${GOOD_RISK.includes(t) ? "good" : "bad"}">${esc(t)}</span>`).join("");
+const handleOf = (tw) => tw ? tw.replace(/\/+$/, "").split("/").pop().replace(/^@/, "") : "";
+
+async function loadKols() {
+  try { KOLS = await j("/api/kols"); } catch { return; }
+  $("#kollist").innerHTML = KOLS.length ? KOLS.map(k => `<div class="kol-card ${k.name === KOL_SEL ? "sel" : ""}" data-name="${esc(k.name)}">
+      ${pfpHtml(k.pfp, k.name)}
+      <div style="min-width:0"><div class="nm">${esc(k.name)} ${k.status === "running" ? '<span class="spin">◌</span>' : ""}</div>
+        <div class="sub">${k.twitter ? "@" + esc(handleOf(k.twitter)) + " · " : ""}${1 + (k.side_wallets || []).length - (k.wallet ? 0 : 1)} wallet(s)
+          ${k.summary.win_rate != null ? " · WR " + k.summary.win_rate + "%" : ""}${k.summary.total_pnl_sol != null ? ` · <span class="${k.summary.total_pnl_sol >= 0 ? "pos" : "neg"}">${k.summary.total_pnl_sol} SOL</span>` : ""}</div>
+        <div class="tags">${k.status === "running" ? '<span class="tag s">RESEARCHING…</span>' : k.status === "new" ? '<span class="tag s">QUEUED</span>' : tagsHtml(k.style.slice(0, 2), [])}</div></div></div>`).join("")
+    : `<div class="empty">no KOLs yet<br><br><span class="dim">click + ADD KOL and paste their wallets</span></div>`;
+  document.querySelectorAll(".kol-card").forEach(el => el.onclick = () => openKol(el.dataset.name));
+  if (!KOL_SEL && KOLS.length) openKol(KOLS[0].name);
+  else if (KOL_SEL && KOLS.find(k => k.name === KOL_SEL)?.status !== "running" && $("#koldetail").dataset.status === "running") openKol(KOL_SEL);
+}
+
+function mixHtml(obj) {
+  const e = Object.entries(obj || {}); const tot = e.reduce((a, [, v]) => a + v, 0) || 1;
+  return e.map(([k, v]) => `<div class="mix"><span>${esc(k)}</span><div class="track"><div class="fillb" style="width:${v / tot * 100}%"></div></div><span class="r">${Math.round(v / tot * 100)}%</span></div>`).join("") || '<div class="dim">—</div>';
+}
+
+async function openKol(name) {
+  KOL_SEL = name;
+  document.querySelectorAll(".kol-card").forEach(el => el.classList.toggle("sel", el.dataset.name === name));
+  let d; try { d = await j("/api/kols/" + encodeURIComponent(name)); } catch { return; }
+  const k = d.kol, p = d.profile || {}, s = p.stats || {}, x = p.x || {};
+  $("#koldetail").dataset.status = p.status || "new";
+  const pfp = x.pfp || (k.twitter ? `https://unavatar.io/x/${handleOf(k.twitter)}` : null);
+  const tw = k.twitter && /^https?:\/\//.test(k.twitter) ? k.twitter : null;
+  const head = `<div class="kd-top">${pfpHtml(pfp, k.name, true)}
+    <div style="min-width:0"><div class="kd-name">${esc(x.display_name || k.name)}</div>
+      ${tw ? `<a class="dim" href="${esc(tw)}" target="_blank" rel="noopener noreferrer">@${esc(handleOf(k.twitter))} ↗</a>` : '<span class="dim">no X handle</span>'}
+      ${x.followers ? `<span class="dim"> · ${Number(x.followers).toLocaleString()} followers</span>` : ""}
+      ${x.bio ? `<div class="kd-bio">${esc(x.bio)}</div>` : ""}
+      <div class="tags" style="margin-top:6px">${tagsHtml(p.style, p.risk)}</div></div>
+    <div class="kd-actions"><button id="kd-re">${p.status === "running" ? "RESEARCHING…" : "RE-RESEARCH"}</button><button id="kd-edit">EDIT WALLETS</button><button id="kd-del">DELETE</button></div></div>`;
+  if (!p.stats) {
+    $("#koldetail").innerHTML = head + `<div class="empty">${p.status === "running" || p.status === "new" ? '<span class="spin">◌</span> researching wallets… this can take a few minutes (longer without a Helius key)' : p.status === "error" ? "research failed: see THE TRACE" : "not researched yet"}</div>`;
+  } else {
+    const pct = (v) => v == null ? "—" : v + "%";
+    $("#koldetail").innerHTML = head + `
+    <div class="kd-grid"><div>
+      <div class="sec"><span>PROFILE</span><span>${p.description_by === "claude" ? "CLAUDE" : "TEMPLATE"} · ${esc(p.data_source || "")} · ${ago(p.ts)} ago</span></div>
+      <div class="kd-desc">${esc(p.description)}</div>
+      <div class="sec"><span>STATS</span><span>${s.trades} swaps · ${s.positions} coins · ${s.days}d</span></div>
+      <div class="grid4">
+        <div><span>WIN RATE</span><b>${pct(s.win_rate)}</b></div><div><span>AVG WINNER</span><b>${s.avg_win_x ? s.avg_win_x + "x" : "—"}</b></div>
+        <div><span>MEDIAN LOSER</span><b>${s.median_loss_pct != null ? s.median_loss_pct + "%" : "—"}</b></div>
+        <div><span>TOTAL PNL</span><b class="${(s.total_pnl_sol || 0) >= 0 ? "pos" : "neg"}">${s.total_pnl_sol ?? "—"} SOL</b></div>
+        <div><span>MEDIAN SIZE</span><b>${s.median_size_sol ?? "—"} SOL</b></div><div><span>ENTRY MCAP</span><b>${usd(s.median_entry_mcap)}</b></div>
+        <div><span>ENTRY AFTER LAUNCH</span><b>${dur(s.median_entry_age_s)}</b></div><div><span>TRADES / DAY</span><b>${s.trades_per_day ?? "—"}</b></div>
+        <div><span>HOLD (ALL)</span><b>${dur(s.median_hold_s)}</b></div><div><span>HOLD WINNERS</span><b>${dur(s.median_hold_win_s)}</b></div>
+        <div><span>HOLD LOSERS</span><b>${dur(s.median_hold_loss_s)}</b></div><div><span>SCALES OUT</span><b>${pct(s.scale_out_pct)}</b></div>
+        <div><span>OPEN BAGS -50%</span><b>${pct(s.bag_hold_pct)}</b></div><div><span>SIZE CONSISTENCY</span><b>${s.size_cv == null ? "—" : s.size_cv < 0.5 ? "steady" : "erratic"}</b></div>
+        <div><span>ACTIVE (UTC)</span><b>${(s.active_hours_utc || []).map(h => h + ":00").join(" ") || "—"}</b></div>
+        <div><span>REALIZED</span><b class="${(s.realized_pnl_sol || 0) >= 0 ? "pos" : "neg"}">${s.realized_pnl_sol ?? "—"} SOL</b></div></div>
+      <div class="sec"><span>WALLETS</span><span>${(p.wallets || []).length}</span></div>
+      <table class="ktable"><tr><th>ROLE</th><th>ADDRESS</th><th>COINS</th><th>WIN</th><th>SIZE</th><th>PNL</th></tr>
+        ${(p.wallets || []).map(w => `<tr><td>${w.role.toUpperCase()}</td><td><a href="https://solscan.io/account/${esc(w.address)}" target="_blank" rel="noopener noreferrer">${esc(w.address.slice(0, 4))}…${esc(w.address.slice(-4))}</a></td>
+          <td>${w.stats.positions ?? 0}</td><td>${pct(w.stats.win_rate)}</td><td>${w.stats.median_size_sol ?? "—"}</td>
+          <td class="${(w.stats.total_pnl_sol || 0) >= 0 ? "pos" : "neg"}">${w.stats.total_pnl_sol ?? "—"}</td></tr>`).join("")}</table>
+      ${(p.side_insights || []).length ? `<div class="sec"><span>SIDE WALLETS</span></div><ul class="cx-list">${p.side_insights.map(i => `<li style="color:#ff9de6">${esc(i)}</li>`).join("")}</ul>` : ""}
+    </div><div>
+      <div class="sec"><span>WHAT THEY BUY · ENTRY MCAP</span></div>${mixHtml(s.entry_mcap_mix)}
+      <div class="sec"><span>HOW EARLY · AFTER LAUNCH</span></div>${mixHtml(s.entry_age_mix)}
+      <div class="sec"><span>THEMES</span></div>${mixHtml(s.themes)}
+      <div class="sec"><span>LAUNCHPADS</span></div>${mixHtml(s.launchpads)}
+      <div class="sec"><span>BEST / WORST</span></div>
+      ${[...(s.best || []), ...(s.worst || [])].map(b => `<div class="kv"><span>$${esc(b.symbol)}</span><b class="${b.pnl_sol >= 0 ? "pos" : "neg"}">${b.pnl_sol} SOL · ${b.multiple ?? "—"}x</b></div>`).join("") || '<div class="dim">—</div>'}
+      <div class="sec"><span>RECENT BUYS</span></div>
+      <table class="ktable"><tr><th>COIN</th><th>ENTRY</th><th>SIZE</th><th>X</th><th>HOLD</th></tr>
+        ${(p.recent || []).map(r => `<tr><td>$${esc(r.symbol)}</td><td>${usd(r.entry_mcap)}</td><td>${r.invested_sol}</td>
+          <td class="${(r.multiple || 0) >= 1 ? "pos" : "neg"}">${r.multiple ?? "—"}${r.closed ? "" : " ·open"}</td><td>${dur(r.hold_s)}</td></tr>`).join("")}</table>
+    </div></div>`;
+  }
+  $("#kd-re").onclick = () => kolPost(`/api/kols/${encodeURIComponent(name)}/research`, "POST");
+  $("#kd-del").onclick = () => { if (confirm(`Delete ${name} and their profile?`)) kolPost(`/api/kols/${encodeURIComponent(name)}`, "DELETE", () => { KOL_SEL = null; $("#koldetail").innerHTML = '<div class="empty">deleted</div>'; }); };
+  $("#kd-edit").onclick = () => openKolForm(k);
+}
+
+async function kolPost(url, method, after) {
+  const pw = await adminPw(); if (pw === null) return;
+  const r = await fetch(url, { method, headers: { "x-admin-password": pw } });
+  if (!r.ok) { alert(r.status === 403 ? "Wrong admin password." : "Request failed (" + r.status + ")"); ADMIN_PW = ""; return; }
+  after && after(); setTimeout(loadKols, 500); setTimeout(() => KOL_SEL && openKol(KOL_SEL), 800);
+}
+
+async function adminPw() {
+  if (!SETTINGS || !SETTINGS.needs_password) return "";
+  if (ADMIN_PW) return ADMIN_PW;
+  const v = prompt("Admin password (the one you chose when you deployed):");
+  if (v === null) return null; ADMIN_PW = v; return v;
+}
+
+function openKolForm(k) {
+  const f = $("#koladd-form"); f.reset();
+  if (k) { f.name.value = k.name; f.twitter.value = k.twitter || ""; f.wallet.value = k.wallet || ""; f.side_wallets.value = (k.side_wallets || []).join("\n"); }
+  $("#kol-pw").hidden = !(SETTINGS && SETTINGS.needs_password); $("#kol-msg").textContent = "";
+  $("#koladd").showModal();
+}
+$("#btn-addkol").onclick = () => openKolForm(null);
+$("#koladd-form").addEventListener("submit", async (e) => {
+  if (e.submitter && e.submitter.value === "cancel") return;
+  e.preventDefault(); const f = e.target;
+  if (f.admin.value) ADMIN_PW = f.admin.value;
+  $("#kol-msg").textContent = "saving…";
+  try {
+    const r = await fetch("/api/kols", { method: "POST", headers: { "content-type": "application/json", "x-admin-password": ADMIN_PW },
+      body: JSON.stringify({ name: f.name.value, twitter: f.twitter.value, wallet: f.wallet.value, side_wallets: f.side_wallets.value }) });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok) { $("#kol-msg").textContent = r.status === 403 ? "Wrong admin password." : (out.detail || "Save failed (" + r.status + ")"); return; }
+    $("#koladd").close(); KOL_SEL = f.name.value.trim(); loadKols(); setTimeout(() => openKol(KOL_SEL), 600);
+  } catch (err) { $("#kol-msg").textContent = "Save failed: " + err; }
+});
+loadKols(); setInterval(loadKols, 6000);

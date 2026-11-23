@@ -125,7 +125,29 @@
     <header>◆ HOURLY META <i>— last hour vs prior six</i><span class="hdr-r"><button id="btn-hourly">REFRESH</button></span></header>
     <div id="hourlybody"></div>
   </section>
+  <!-- KOL LAB ------------------------------------------------------------------>
+  <section class="panel p-mag" id="kollab">
+    <header>◆ KOL LAB <i>— paste a KOL's wallets · the agent studies what they buy, their style and risk management</i>
+      <span class="hdr-r"><button id="btn-addkol">+ ADD KOL</button></span></header>
+    <div class="kol-wrap">
+      <div class="kol-list" id="kollist"></div>
+      <div class="kol-detail" id="koldetail"><div class="empty">add a KOL to start researching</div></div>
+    </div>
+  </section>
 </main>
+<dialog id="koladd">
+  <form method="dialog" id="koladd-form">
+    <h3>◆ ADD / EDIT KOL</h3>
+    <label class="set-key">NAME<input name="name" required maxlength="40" placeholder="e.g. Ansem"></label>
+    <label class="set-key">X HANDLE<input name="twitter" placeholder="@handle or https://x.com/handle (for the profile picture)"></label>
+    <label class="set-key">MAIN WALLET<input name="wallet" placeholder="Solana address"></label>
+    <label class="set-key">SIDE WALLETS<textarea name="side_wallets" rows="4" placeholder="one address per line (or comma separated)"></textarea></label>
+    <label class="set-key" id="kol-pw" hidden>ADMIN PASSWORD<input type="password" name="admin" autocomplete="current-password"></label>
+    <p class="dim small">The agent pulls each wallet's swaps (deep history with a Helius key; a small sample without one), studies every token they touched, and writes a profile. Side wallets also count as KOL buys on THE TAPE.</p>
+    <p class="small" id="kol-msg"></p>
+    <div class="set-actions"><button value="cancel" formnovalidate>CLOSE</button><button id="kol-save" value="default">RESEARCH</button></div>
+  </form>
+</dialog>
 <footer>TRENCH SCOPE · <span id="foot"></span> · not financial advice</footer>
 <script src="/static/synapse.js"></script>
 <script src="/static/app.js"></script>

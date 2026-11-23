@@ -22,7 +22,15 @@ class KolTracker(Source):
     _cache: tuple[float, dict] | None = None
 
     def kols(self) -> list[dict]:
-        return [k for k in load_json_data("kols.json", []) if k.get("wallet")]
+        """One entry per wallet: main wallets plus every side wallet (tagged '(side)')."""
+        out = []
+        for k in load_json_data("kols.json", []) or []:
+            if k.get("wallet"):
+                out.append(k)
+            for w in k.get("side_wallets") or []:
+                if w:
+                    out.append({**k, "wallet": w, "name": f"{k['name']} (side)"})
+        return out
 
     def build_map(self) -> dict[str, list[dict]]:
         ttl = self.cfg.get_path("scheduler.scan_every_min", 10) * 60 * 0.8

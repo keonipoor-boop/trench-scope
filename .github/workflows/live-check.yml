@@ -16,6 +16,9 @@ on:
       debug:
         description: "Only run the fee debugger on the symbols"
         default: "no"
+      kol_wallets:
+        description: "Only run the KOL research agent on these wallets (space separated)"
+        default: ""
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -28,11 +31,13 @@ jobs:
       - run: pip install -r requirements.txt
       - if: ${{ inputs.probe == 'yes' }}
         run: pip install websockets && python scripts/probe.py
+      - if: ${{ inputs.kol_wallets != '' }}
+        run: python scripts/kol_check.py ${{ inputs.kol_wallets }}
       - if: ${{ inputs.debug == 'yes' }}
         run: python scripts/fee_debug.py ${{ inputs.symbols }}
-      - if: ${{ inputs.debug != 'yes' }}
+      - if: ${{ inputs.debug != 'yes' && inputs.kol_wallets == '' }}
         run: python run.py doctor || true
-      - if: ${{ inputs.debug != 'yes' }}
+      - if: ${{ inputs.debug != 'yes' && inputs.kol_wallets == '' }}
         run: python scripts/live_check.py ${{ inputs.symbols }}
         env:
           DAYS: ${{ inputs.days }}
