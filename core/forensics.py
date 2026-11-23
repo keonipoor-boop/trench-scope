@@ -158,7 +158,11 @@ def explain_fake(c: dict) -> dict:
             continue
         if k == "fees":
             if c.get("fee_paying_volume_pct") is not None:
-                reasons.append(f"Only {c['fee_paying_volume_pct']:.0f}% of its meaningful volume paid real fees, and fees were just "
+                from signals.fees import total_fees_sol
+                tot = total_fees_sol(c)
+                lead = (f"Traders paid only ≈{tot:.1f} SOL in fees in total for a {_usd(c.get('ath_mcap'))} peak "
+                        f"({tot / max((c.get('ath_mcap') or 1) / 100_000, 1e-9):.1f} SOL per $100k; real runners pay 6+). ") if tot is not None else ""
+                reasons.append(lead + f"Only {c['fee_paying_volume_pct']:.0f}% of its meaningful volume paid real fees, and fees were just "
                                f"{c.get('fee_volume_pct') or 0:.2f}% of volume. Real buyers trading through terminals pay ~0.5-1%; "
                                "bots that paint charts call the program directly and pay almost nothing.")
             elif c.get("organic_score") is not None:
@@ -193,7 +197,8 @@ def explain_fake(c: dict) -> dict:
         elif k == "traders":
             reasons.append(f"Only ~{traders or 0:,} unique traders behind {_usd(vol)} of volume.")
     metrics = {
-        "volume_24h": vol, "fees_sol": c.get("fees_sol"), "fee_volume_pct": c.get("fee_volume_pct"),
+        "volume_24h": vol, "fees_sol": (lambda t: round(t, 2) if t is not None else None)(__import__("signals.fees", fromlist=["x"]).total_fees_sol(c)),
+        "fee_volume_pct": c.get("fee_volume_pct"),
         "fee_paying_volume_pct": c.get("fee_paying_volume_pct"), "holders": c.get("holders"),
         "top10_pct": c.get("top10_pct"), "unique_traders": traders,
         "volume_per_trader": round(vol / traders) if vol and traders else None,

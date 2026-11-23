@@ -11,8 +11,21 @@ const CAT_NICE = { celebrity_tweet: "Celebrity tweet", tweet_play: "Tweet play",
 const AGENT_INFO = { SCOUT: "discovery", HOLDERS: "holders", KOLS: "kol wallets", FEES: "fees/traders", CATALYST: "why it ran", THESIS: "narrative" };
 const AC = window.Synapse.AGENT_COLORS;
 let STATE = null, lastEvent = 0, selected = null, seenTape = new Set();
+// THE TAPE: REAL (default) / FAKE / ANALYZING / ALL tabs
+let TAPE_F = "real";
+try { const v = localStorage.getItem("tapef"); if (["real", "fake", "pending", "all"].includes(v)) TAPE_F = v; } catch { /* ignore */ }
+function renderTapeTabs() {
+  const n = (STATE && STATE.tape_counts) || {};
+  const tabs = [["real", "Real", "real"], ["fake", "Fake", "fake"], ["pending", "Analyzing", "wait"], ["all", "All", ""]];
+  $("#tapetabs").innerHTML = tabs.map(([k, l, cls]) => `<button role="tab" aria-selected="${k === TAPE_F}" data-f="${k}">
+    ${cls ? `<span class="pill ${cls}" style="margin:0 5px 0 0">${l}</span>` : l + " "}<b>${n[k] ?? "—"}</b></button>`).join("");
+  document.querySelectorAll("#tapetabs button").forEach(b => b.onclick = () => {
+    TAPE_F = b.dataset.f; try { localStorage.setItem("tapef", TAPE_F); } catch { /* ignore */ }
+    seenTape = new Set(); renderTapeTabs(); refresh();
+  });
+}
 // ---- timeframe (chart-style TF bar) -------------------------------------------------
-const TFS = ["7D", "3D", "24H", "12H", "6H", "4H", "1H", "30M", "15M", "5M", "1M", "30S", "15S", "1S"];
+const TFS = ["7D", "3D", "24H", "12H", "6H", "4H", "1H"];  // 1H is the shortest window
 const TF_SECS = { D: 86400, H: 3600, M: 60, S: 1 };
 const tfSecs = (tf) => parseInt(tf) * TF_SECS[tf.slice(-1)];
 const tfWords = (s) => s >= 86400 ? `${s / 86400}D` : s >= 3600 ? `${s / 3600}H` : s >= 60 ? `${Math.round(s / 60)}M` : `${s}S`;
@@ -47,7 +60,7 @@ function cjTrack(url, ttl) { const p = cj(url, ttl); const h = _CACHE.get(url); 
 const prefetchCoin = (mint) => cjTrack("/api/coin/" + encodeURIComponent(mint), 30000);
 
 async function refresh() {
-  try { STATE = await j("/api/state?tf=" + encodeURIComponent(TF)); } catch (e) { $("#livewire").textContent = "backend unreachable: " + e; return; }
+  try { STATE = await j("/api/state?tf=" + encodeURIComponent(TF) + "&tape_filter=" + TAPE_F); } catch (e) { $("#livewire").textContent = "backend unreachable: " + e; return; }
   renderTicker(); renderBoard(); renderTape(); renderSynapse(); renderAgents(); renderRotation(); renderHourly();
   $("#foot").textContent = `${STATE.mode.toUpperCase()} MODE${$("#foot").dataset.v ? " · v" + $("#foot").dataset.v : ""} · last scan ${STATE.last_scan ? ago(STATE.last_scan.ts) + " ago" : "never"}`;
   if (!selected && STATE.tape.length) openCoin(STATE.tape[0].mint);
@@ -91,10 +104,12 @@ function renderBoard() {
 }
 
 function renderTape() {
+  renderTapeTabs();
   const t = STATE.tape;
   if (!t.length) {
     const scout = STATE.agents.find(a => a.name === "SCOUT") || {};
     const msg = scout.status === "running" ? `scanning… ${esc(scout.detail || "")}<br><br><span class="dim">first scan takes ~5–10 min · watch THE TRACE below</span>`
+      : TAPE_F !== "all" && (STATE.tape_counts || {}).all ? `no ${{ real: "real", fake: "fake", pending: "still-analysing" }[TAPE_F]} runners in the last ${TF}<br><br><span class='dim'>${(STATE.tape_counts || {}).all} runners in total: see the other tabs</span>`
       : STATE.last_scan ? `no coins crossed $100k in the last ${TF}${tfSecs(TF) < 86400 ? "<br><br><span class='dim'>try a longer timeframe</span>" : " yet · next scan soon"}` : "waiting for the first scan…";
     $("#book").innerHTML = `<div class="empty">${msg}</div>`; $("#tape-hdr").textContent = ""; return;
   }
@@ -190,34 +205,32 @@ function renderAgents() {
 }
 
 function renderRotation() {
-  $("#rot-sub").textContent = `— share vs momentum · tail = ${TF} → last ${tfWords(STATE.themes.tail_s)}`;
-  const cv = $("#rotcanvas"), r = cv.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
-  cv.width = r.width * dpr; cv.height = r.height * dpr; const g = cv.getContext("2d"); g.scale(dpr, dpr);
-  const W = r.width, H = r.height, L = 34, B = 22;
-  const rows = STATE.themes.themes.filter(t => t.theme !== "Unthemed" && (t.runners || t.h_runners || t.launches > 5));
-  const maxS = Math.max(20, ...rows.map(t => Math.max(t.share, t.h_share))) * 1.1;
-  const lmin = Math.log(0.1), lmax = Math.log(Math.max(4, ...rows.map(t => Math.max(t.momentum, t.h_momentum))) * 1.3);
-  const X = s => L + Math.sqrt(s / maxS) * (W - L - 10), Y = m => H - B - (Math.log(Math.max(0.1, m)) - lmin) / (lmax - lmin) * (H - B - 10);
-  const midX = X(100 / Math.max(1, rows.length)), midY = Y(1);
-  g.fillStyle = "rgba(57,255,136,.04)"; g.fillRect(midX, 10, W - midX, midY - 10);
-  g.fillStyle = "rgba(255,77,109,.04)"; g.fillRect(L, midY, midX - L, H - B - midY);
-  g.strokeStyle = "rgba(120,150,180,.25)"; g.setLineDash([3, 4]); g.beginPath(); g.moveTo(L, midY); g.lineTo(W, midY); g.moveTo(midX, 10); g.lineTo(midX, H - B); g.stroke(); g.setLineDash([]);
-  g.font = "700 9px JetBrains Mono"; g.fillStyle = "#39ff88aa"; g.fillText("LEADING", W - 56, 20); g.fillStyle = "#22e6ffaa"; g.fillText("IMPROVING", L + 4, 20);
-  g.fillStyle = "#ff8a3daa"; g.fillText("WEAKENING", W - 64, H - B - 6); g.fillStyle = "#ff4d6daa"; g.fillText("LAGGING", L + 4, H - B - 6);
-  g.font = "9px JetBrains Mono"; g.fillStyle = "#5d7183"; g.fillText("share of runners →", W - 120, H - 6);
-  g.save(); g.translate(10, H / 2 + 40); g.rotate(-Math.PI / 2); g.fillText("momentum (log) →", 0, 0); g.restore();
-  for (const m of [0.25, 1, 2, 4]) if (Math.log(m) < lmax) g.fillText(m + "x", 14, Y(m) + 3);
-  const all = STATE.themes.themes.map(t => t.theme);
-  rows.forEach(t => {
-    const col = window.Synapse.PALETTE[all.indexOf(t.theme) % window.Synapse.PALETTE.length];
-    const x1 = X(t.share), y1 = Y(t.momentum || 0.1), x2 = X(t.h_share), y2 = Y(t.h_momentum || 0.1);
-    g.strokeStyle = col; g.globalAlpha = .6; g.lineWidth = 1.4; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
-    const a = Math.atan2(y2 - y1, x2 - x1); if (Math.hypot(x2 - x1, y2 - y1) > 8) { g.beginPath(); g.moveTo(x2, y2);
-      g.lineTo(x2 - 7 * Math.cos(a - .4), y2 - 7 * Math.sin(a - .4)); g.lineTo(x2 - 7 * Math.cos(a + .4), y2 - 7 * Math.sin(a + .4)); g.fillStyle = col; g.fill(); }
-    g.globalAlpha = 1; g.fillStyle = col; g.shadowColor = col; g.shadowBlur = 12;
-    g.beginPath(); g.arc(x1, y1, 3 + Math.sqrt(t.runners) * 1.6, 0, 7); g.fill(); g.shadowBlur = 0;
-    g.fillStyle = "#e8f1fa"; g.font = "9px JetBrains Mono"; g.fillText(t.theme.split(" ")[0].toUpperCase(), x1 + 7, y1 - 6);
-  });
+  // a calm, readable board: one row per narrative, sorted by share, with a status pill and a trend chip
+  const th = STATE.themes, all = th.themes.map(t => t.theme), noBase = th.daily.no_baseline;
+  $("#rot-sub").textContent = `— who's leading the last ${TF}, and who's heating up in the last ${tfWords(th.tail_s)}`;
+  const rows = th.themes.filter(t => t.runners || t.h_runners || t.launches > 5).sort((a, b) => b.share - a.share || b.runners - a.runners);
+  if (!rows.length) { $("#rotlist").innerHTML = '<div class="empty">no narratives with runners in this window</div>'; return; }
+  const avg = 100 / Math.max(1, rows.filter(r => r.runners).length), maxShare = Math.max(1, ...rows.map(r => r.share));
+  const status = (r) => {
+    const big = r.share >= avg, up = noBase ? r.h_share >= r.share : r.momentum >= 1;
+    return big && up ? ["Leading", "lead"] : !big && up ? ["Improving", "impr"] : big ? ["Weakening", "weak"] : ["Lagging", "lag"];
+  };
+  const trend = (r) => {
+    // heating up = a bigger share of runners in the last stretch than over the whole window
+    const d = r.h_share - r.share;
+    if (!r.runners && !r.h_runners) return '<span class="trend flat">—</span>';
+    if (Math.abs(d) < 5) return '<span class="trend flat">steady</span>';
+    return d > 0 ? `<span class="trend up" title="bigger share of runners lately">▲ heating</span>` : `<span class="trend down" title="smaller share of runners lately">▼ cooling</span>`;
+  };
+  $("#rotlist").innerHTML = rows.map(r => {
+    const col = window.Synapse.PALETTE[all.indexOf(r.theme) % window.Synapse.PALETTE.length], [st, cls] = status(r);
+    return `<button class="rot-row" data-theme="${esc(r.theme)}">
+      <span class="rot-dot" style="background:${col};box-shadow:0 0 8px ${col}"></span>
+      <span class="rot-name"><b>${esc(r.theme)}</b><span>${r.runners} runner${r.runners === 1 ? "" : "s"} · ${r.hit_rate}% hit rate</span></span>
+      <span class="rot-bar"><i style="width:${r.share / maxShare * 100}%;background:${col}"></i><em>${r.share}%</em></span>
+      <span class="rot-st ${cls}">${st}</span>${trend(r)}</button>`;
+  }).join("");
+  document.querySelectorAll("#rotlist .rot-row").forEach(b => b.onclick = (e) => { e.stopPropagation(); themePop(b.dataset.theme, b); });
 }
 
 function renderHourly() {
@@ -296,7 +309,7 @@ async function pollEvents() {
 async function post(url) { try { const r = await j(url, { method: "POST" }); if (!r.started) $("#livewire").textContent = r.reason; } catch (e) { $("#livewire").textContent = "request failed: " + e; } setTimeout(refresh, 1500); }
 $("#btn-scan").onclick = () => post("/api/scan");
 $("#btn-hourly").onclick = () => post("/api/thesis/hourly");
-window.addEventListener("resize", () => { if (STATE) { drawTapeChart(); renderRotation(); } });
+window.addEventListener("resize", () => { if (STATE) drawTapeChart(); });
 
 // ---- settings / setup / updates ---------------------------------------------------
 let SETTINGS = null, VERSION = null;
@@ -668,11 +681,65 @@ $("#koladd-form").addEventListener("submit", async (e) => {
 });
 loadKols(); setInterval(loadKols, 6000);
 
+// ---- HALL OF RUNNERS: runner of the day / week / month, overall + per narrative -------------------
+let LD_PER = "day", LD_VIEW = "overall", LD_REAL = false;
+try { const v = JSON.parse(localStorage.getItem("leaders") || "{}"); LD_PER = v.p || LD_PER; LD_VIEW = v.v || LD_VIEW; LD_REAL = !!v.r; } catch { /* ignore */ }
+const ldSave = () => { try { localStorage.setItem("leaders", JSON.stringify({ p: LD_PER, v: LD_VIEW, r: LD_REAL })); } catch { /* ignore */ } };
+function ldTabs() {
+  document.querySelectorAll(".ld-per button").forEach(b => b.setAttribute("aria-selected", b.dataset.per === LD_PER));
+  document.querySelectorAll(".ld-view button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === LD_VIEW));
+  $("#ld-real").checked = LD_REAL;
+  $("#ld-title").textContent = LD_VIEW === "overall" ? `RUNNER OF THE ${LD_PER.toUpperCase()}` : `NARRATIVE RUNNERS OF THE ${LD_PER.toUpperCase()}`;
+}
+document.querySelectorAll(".ld-per button").forEach(b => b.onclick = () => { LD_PER = b.dataset.per; ldSave(); ldTabs(); loadLeaders(); });
+document.querySelectorAll(".ld-view button").forEach(b => b.onclick = () => { LD_VIEW = b.dataset.view; ldSave(); ldTabs(); loadLeaders(); });
+$("#ld-real").onchange = (e) => { LD_REAL = e.target.checked; ldSave(); loadLeaders(); };
+
+async function loadLeaders() {
+  let d; try { d = await cjTrack(`/api/leaders?period=${LD_PER}&real_only=${LD_REAL ? 1 : 0}`, 10000); } catch { return; }
+  const per = LD_PER, since = d.tracking_since;
+  const partial = since && Date.now() / 1000 - since < { hour: 3600, day: 86400, week: 7 * 86400, month: 30 * 86400 }[per]
+    ? `<div class="pop-sec" style="padding:0 0 8px">Tracking since ${new Date(since * 1000).toLocaleDateString([], { month: "short", day: "numeric" })}: this ${per} fills in as the app keeps running.</div>` : "";
+  const body = $("#ld-body");
+  if (!d.count) { body.innerHTML = partial + `<div class="empty">no runners this ${per}${LD_REAL ? " that pass the REAL checks" : ""} yet</div>`; return; }
+  const open = (el) => el.querySelectorAll("[data-mint]").forEach(x => {
+    x.onmouseenter = () => prefetchCoin(x.dataset.mint);
+    x.onclick = (e) => { e.stopPropagation(); openCoin(x.dataset.mint); openPop(x.dataset.mint, x); };
+  });
+  if (LD_VIEW === "overall") {
+    const h = d.overall[0];
+    body.innerHTML = partial + `<div class="ld-wrap">
+      <div class="hero" data-mint="${esc(h.mint)}">
+        <div class="crown">♛ RUNNER OF THE ${per.toUpperCase()} · out of ${d.count} runners</div>
+        <div class="hero-top">${coinImg(h.image, h.symbol, true, h.mint).replace('class="cimg big"', 'class="cimg huge"')}
+          <div style="min-width:0"><h3>${esc(h.name || h.symbol)} ${statusPill(h)}</h3><div class="sub">$${esc(h.symbol)} · ${esc(CAT_NICE[h.primary_catalyst] || "Classifying…")}${(h.themes || []).length ? " · " + esc(h.themes.join(", ")) : ""}</div>
+            <div class="ath">${usd(h.ath_mcap)}</div><div class="sub">peak market cap · now ${usd(h.usd_market_cap)}</div></div></div>
+        <div class="hero-stats"><div><span>To $100k</span><b>${mins(h.time_to_100k_min)}</b></div><div><span>Holders</span><b>${h.holders != null ? Number(h.holders).toLocaleString() : "—"}</b></div>
+          <div><span>Top 10</span><b>${h.top10_pct != null ? h.top10_pct + "%" : "—"}</b></div><div><span>Launched</span><b>${ago(h.created_ts)} ago</b></div></div>
+        ${h.fake_headline ? `<div class="fake-box compact" style="margin:12px 0 0"><div class="fake-h">⚠ Flagged</div><div class="fake-head">${esc(h.fake_headline)}</div></div>` : ""}
+        ${(h.why || []).length ? `<ul>${h.why.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+      </div>
+      <div class="rank-list">${d.overall.slice(1).map((c, i) => coinRowHtml(c).replace('<div class="coin-row', `<div class="coin-row ld-r"`).replace(/(<div class="coin-row[^>]*>)/, `$1<span class="rank-n r${i + 2}">#${i + 2}</span>`)).join("")}</div></div>`;
+  } else {
+    const all = (STATE?.themes?.themes || []).map(t => t.theme);
+    body.innerHTML = partial + `<div class="th-grid">${d.by_theme.map(t => {
+      const c = t.top[0], col = window.Synapse.PALETTE[Math.max(0, all.indexOf(t.theme)) % window.Synapse.PALETTE.length];
+      return `<div class="th-card"><h4><i style="background:${col};box-shadow:0 0 8px ${col}"></i>${esc(t.theme)}<em>${t.runners} runner${t.runners === 1 ? "" : "s"} · ${t.real} real</em></h4>
+        <div class="th-crown" data-mint="${esc(c.mint)}">${coinImg(c.image, c.symbol, true, c.mint)}
+          <div style="min-width:0"><span style="color:#ffd23d">♛ #1 of the ${per}</span><b>${esc(c.name || c.symbol)} ${statusPill(c)}</b>
+            <span>$${esc(c.symbol)} · ${esc(CAT_NICE[c.primary_catalyst] || "")}</span><div class="v">${usd(c.ath_mcap)}</div></div></div>
+        ${t.top.slice(1).map((x, i) => coinRowHtml(x).replace(/(<div class="coin-row[^>]*>)/, `$1<span class="rank-n r${i + 2}">#${i + 2}</span>`).replace('<div class="coin-row', '<div class="coin-row ld-r"')).join("")}
+      </div>`; }).join("")}</div>`;
+  }
+  open(body);
+}
+ldTabs(); loadLeaders(); setInterval(loadLeaders, 30000);
+
 // ---- STRATEGY LIBRARY: the AI's living model of each KOL's strategy, versioned ----------------
 let LIB = [], LIB_SEL = null, LIB_VER = null;
-document.querySelectorAll(".kl-tabs button").forEach(b => b.onclick = () => {
+document.querySelectorAll("#kollab .kl-tabs button").forEach(b => b.onclick = () => {
   const lib = b.dataset.tab === "library";
-  document.querySelectorAll(".kl-tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+  document.querySelectorAll("#kollab .kl-tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
   $("#kolstage").hidden = lib; $("#libstage").hidden = !lib;
   if (lib) loadLibrary();
 });

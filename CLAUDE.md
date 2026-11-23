@@ -172,8 +172,17 @@ the latest version (`TRACKED` thresholds) and writes a new version + changelog o
 flags a 7-day "shift". Stored in `kol_strategies`; served by `/api/strategies[/<name>]`; UI is the KOL LAB's
 STRATEGY LIBRARY tab (`loadLibrary`/`openCodex` in app.js).
 
+### Hall of Runners + tape tabs
+- `/api/leaders?period=hour|day|week|month&real_only=` -> runner of the period (by peak mcap) overall + per narrative;
+  panel `#leaders` (`loadLeaders` in app.js). Runners are never pruned, so longer periods fill in over time.
+- THE TAPE has REAL (default) / FAKE / ANALYZING / ALL tabs: `/api/state?tape_filter=`; counts in `tape_counts`.
+- REAL requires every required check to be measured AND passed; missing data = Analyzing (is_real NULL), never Real.
+  FEES estimates total fees like Axiom's F (`signals/fees.total_fees_sol`: sampled fee rate x volume, SOL price from
+  Jupiter -> kv `sol_usd`) and needs `min_sol_per_100k_ath` (6) SOL per $100k of ATH.
+- NARRATIVE ROTATION is a board (`renderRotation`): share bar, Leading/Improving/Weakening/Lagging, heating/cooling.
+
 ### Timeframes
-The dashboard's TIMEFRAME bar (7D … 1S) passes `?tf=` to `/api/state`. `api/server.py:TIMEFRAMES` lists them;
+The dashboard's TIMEFRAME bar (7D … 1H; 1H is the shortest) passes `?tf=` to `/api/state`. `api/server.py:TIMEFRAMES` lists them;
 runners count by when they crossed the bar (`ts_100k`, else launch), launches by launch time. Add a timeframe
 there and in `TFS` in web/app.js.
 

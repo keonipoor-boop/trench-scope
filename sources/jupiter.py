@@ -100,13 +100,18 @@ class JupiterEnrich(Source):
 
     def enrich(self, coins):
         out, n = {}, self.conf.get("batch", 100)
-        mints = [c["mint"] for c in coins]
+        mints = ["So11111111111111111111111111111111111111112"] + [c["mint"] for c in coins]
         for i in range(0, len(mints), n):
             try:
                 rows = self.http_get(f"{self.base}/tokens/v2/search?query={','.join(mints[i:i + n])}")
             except Exception:
                 continue
             for t in rows if isinstance(rows, list) else []:
+                if t.get("id") == "So11111111111111111111111111111111111111112":
+                    if t.get("usdPrice"):
+                        from core.db import get_db
+                        get_db().kv_set("sol_usd", float(t["usdPrice"]))
+                    continue
                 c = jup_to_coin(t)
                 if c:
                     out[c["mint"]] = c

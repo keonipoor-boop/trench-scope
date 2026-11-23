@@ -1,6 +1,17 @@
 from signals.base import Signal
 
 
+def total_fees_sol(coin: dict) -> float | None:
+    """Total fees traders paid (priority + tips + terminal fees), like Axiom's "F": the sampled fee rate times
+    the coin's whole traded volume. Falls back to avg fee per trade x trade count."""
+    from core.db import get_db
+    fvp, vol = coin.get("fee_volume_pct"), coin.get("volume_24h") or coin.get("volume_24h_jup")
+    if fvp is not None and vol:
+        sol_usd = get_db().kv_get("sol_usd") or 150
+        return fvp / 100 * vol / sol_usd
+    return coin.get("fees_sol")
+
+
 class Fees(Signal):
     """Real buyers pay to trade: priority fees, Jito tips and terminal fees (Axiom/Photon/GMGN ~1%).
     Bots that paint staircase charts call the program directly and pay almost nothing, so lots of
@@ -10,11 +21,14 @@ class Fees(Signal):
     def evaluate(self, coin):
         c = self.conf
         share, fvp = coin.get("fee_paying_volume_pct"), coin.get("fee_volume_pct")
-        fees, ath = coin.get("fees_sol"), coin.get("ath_mcap") or 0
-        per100k = f", ~{fees / (ath / 100_000):.1f} SOL per $100k ATH" if fees and ath else ""
+        ath = coin.get("ath_mcap") or 0
+        total = total_fees_sol(coin)
+        per = total / (ath / 100_000) if total is not None and ath else None
+        need_per = c.get("min_sol_per_100k_ath", 6)
+        per100k = f", ≈{total:.1f} SOL total fees = {per:.1f} SOL per $100k ATH (min {need_per})" if per is not None else ""
         if share is not None:
             need_share, need_fvp = c.get("min_fee_paying_volume_pct", 40), c.get("min_fee_volume_pct", 0.3)
-            ok = share >= need_share and (fvp is None or fvp >= need_fvp)
+            ok = share >= need_share and (fvp is None or fvp >= need_fvp) and (per is None or per >= need_per)
             note = (f"{share:.0f}% of volume paid real fees (min {need_share}%), fees = {fvp:.2f}% of volume"
                     f" (min {need_fvp}%){per100k} [{coin.get('sample_big_trades')} trades >= 0.1 SOL]")
             if not ok:

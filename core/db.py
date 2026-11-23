@@ -159,7 +159,7 @@ class DB:
                 self._tl.writing -= 1
             c = dict(existing or {})
             for k, v in coin.items():
-                if v is None:
+                if v is None and k != "is_real":  # is_real None = "still analysing": must replace a stale verdict
                     continue
                 c[k] = v
             c["ath_mcap"] = max(float(c.get("ath_mcap") or 0), float((existing or {}).get("ath_mcap") or 0))

@@ -50,8 +50,6 @@ def evaluate_all(coin: dict, signals: list[Signal]) -> tuple[dict, bool | None]:
         r["required"] = s.required
         r["label"] = s.label
         res[s.key] = r
-        if r["passed"] is None and s.conf.get("allow_missing"):
-            continue  # e.g. chart not sampled yet: don't block REAL, decide when data arrives
         if s.required and r["passed"] is False:
             real = False
         elif s.required and r["passed"] is None:

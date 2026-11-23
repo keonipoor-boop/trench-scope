@@ -173,7 +173,8 @@ def scan(backfill_days: float | None = None) -> dict:
     runners = {m: c for m, c in window.items() if c["is_runner"]}
     stats["runners"] = len(runners)
     due = sorted([c for c in runners.values() if (c.get("deep_ts") or 0) < now - 60 * pc.get("deep_refresh_min", 30)],
-                 key=lambda c: -(c.get("ath_mcap") or 0))[: pc.get("max_deep_per_scan", 40)]
+                 key=lambda c: (bool(c.get("deep_ts")), -(c.get("created_ts") or 0) if not c.get("deep_ts") else -(c.get("ath_mcap") or 0))
+                 )[: pc.get("max_deep_per_scan", 40)]
     deep = {c["mint"]: c for c in due}
     # 6. SIGNALS + 7. CATALYSTS: a quick pass now (so the tape never shows unclassified runners while
     # the slow per-coin research runs), then a full pass after deep enrichment.
@@ -254,5 +255,7 @@ def scan(backfill_days: float | None = None) -> dict:
 
     stats["seconds"] = round(time.time() - t0, 1)
     db.kv_set("last_scan", {"ts": now, **stats})
+    if not db.kv_get("first_scan_ts"):
+        db.kv_set("first_scan_ts", now)  # "month" leaderboards fill in as the app keeps running
     log("SCOUT", f"scan done in {stats['seconds']}s: {stats['runners']} runners, {stats['real']} REAL")
     return stats

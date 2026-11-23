@@ -75,6 +75,7 @@
         <canvas id="tapechart"></canvas>
       </div>
       <div class="book clean">
+        <div class="tape-tabs" id="tapetabs" role="tablist"></div>
         <div class="book-h"><span>Coin</span><span class="r">ATH · now</span></div>
         <div id="book" role="listbox" aria-label="Runners"></div>
       </div>
@@ -105,7 +106,7 @@
   <!-- ROTATION -------------------------------------------------------------->
   <section class="panel p-orange" id="rotation">
     <header>◆ NARRATIVE ROTATION <i id="rot-sub">— share vs momentum · tail = daily → hourly</i></header>
-    <canvas id="rotcanvas"></canvas>
+    <div class="rot-list clean" id="rotlist"></div>
   </section>
 
   <!-- TRACE ------------------------------------------------------------------>
@@ -125,6 +126,17 @@
     <header>◆ HOURLY META <i>— last hour vs prior six</i><span class="hdr-r"><button id="btn-hourly">REFRESH</button></span></header>
     <div id="hourlybody"></div>
   </section>
+  <!-- HALL OF RUNNERS -------------------------------------------------------------->
+  <section class="panel p-green" id="leaders">
+    <header>◆ <span id="ld-title">RUNNER OF THE DAY</span> <i>— the biggest runners of the period, overall and per narrative</i>
+      <span class="hdr-r">
+        <span class="kl-tabs ld-per" role="tablist"><button data-per="hour" aria-selected="false">HOUR</button><button data-per="day" aria-selected="true">DAY</button><button data-per="week" aria-selected="false">WEEK</button><button data-per="month" aria-selected="false">MONTH</button></span>
+        <span class="kl-tabs ld-view" role="tablist"><button data-view="overall" aria-selected="true">◆ OVERALL</button><button data-view="themes" aria-selected="false">✦ NARRATIVES</button></span>
+        <label class="ld-real"><input type="checkbox" id="ld-real"> REAL ONLY</label>
+      </span></header>
+    <div id="ld-body" class="clean"><div class="empty">loading…</div></div>
+  </section>
+
   <!-- KOL LAB ------------------------------------------------------------------>
   <section class="panel p-mag" id="kollab">
     <header>◆ KOL LAB <i>— paste a KOL's wallets · the agent studies what they buy, their style and risk management</i>

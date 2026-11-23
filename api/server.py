@@ -47,7 +47,7 @@ def slim(c: dict) -> dict:
 # Timeframes for the dashboard's TF bar (seconds). Runners count in a window by the moment they
 # crossed the runner bar (ts_100k, else launch time); launches by launch time.
 TIMEFRAMES = {"7D": 7 * 86400, "3D": 3 * 86400, "24H": 86400, "12H": 43200, "6H": 21600, "4H": 14400,
-              "1H": 3600, "30M": 1800, "15M": 900, "5M": 300, "1M": 60, "30S": 30, "15S": 15, "1S": 1}
+              "1H": 3600}  # 1H is the shortest window
 
 
 def _window(tf: str | None) -> tuple[str, int]:
@@ -109,14 +109,27 @@ def summary(tf: str = "7D"):
     }
 
 
-def tape(tf: str = "7D", limit=40):
+REAL_FILTERS = {"real": "is_real=1", "fake": "is_real=0", "pending": "is_real IS NULL", "all": "1=1"}
+
+
+def tape(tf: str = "7D", limit=40, real: str = "all"):
     tf, w = _window(tf)
     now = time.time()
     lookback = get_config().get_path("pipeline.lookback_days", 7) * 86400
-    rs = get_db().coins("is_runner=1 AND created_ts >= ? AND COALESCE(ts_100k, created_ts) >= ?",
+    rs = get_db().coins(f"is_runner=1 AND created_ts >= ? AND COALESCE(ts_100k, created_ts) >= ? AND {REAL_FILTERS.get(real, '1=1')}",
                         (int(now - max(lookback, w)), int(now - w)),
                         order="COALESCE(ts_100k, created_ts) DESC", limit=limit)
     return [slim(c) for c in rs]
+
+
+def tape_counts(tf: str = "7D") -> dict:
+    tf, w = _window(tf)
+    now = time.time()
+    lookback = get_config().get_path("pipeline.lookback_days", 7) * 86400
+    r = get_db().q("""SELECT SUM(is_real=1) real, SUM(is_real=0) fake, SUM(is_real IS NULL) pending, COUNT(*) total FROM coins
+                      WHERE is_runner=1 AND created_ts >= ? AND COALESCE(ts_100k, created_ts) >= ?""",
+                   (int(now - max(lookback, w)), int(now - w)))[0]
+    return {"real": r["real"] or 0, "fake": r["fake"] or 0, "pending": r["pending"] or 0, "all": r["total"] or 0}
 
 
 def themes_live(tf: str = "24H"):
@@ -141,7 +154,7 @@ def rows(sql, args=()):
 
 
 @app.get("/api/state")
-def state(tf: str = "7D"):
+def state(tf: str = "7D", tape_filter: str = "real"):
     cfg = get_config()
     tf, w = _window(tf)
     ttl = 3 if w <= 300 else 10  # short windows refresh faster
@@ -150,7 +163,9 @@ def state(tf: str = "7D"):
         "last_scan": get_db().kv_get("last_scan"),
         "tf": tf, "timeframes": list(TIMEFRAMES),
         "summary": cached(f"summary:{tf}", ttl, lambda: summary(tf)),
-        "tape": cached(f"tape:{tf}", min(ttl, 5), lambda: tape(tf)),
+        "tape": cached(f"tape:{tf}:{tape_filter}", min(ttl, 5), lambda: tape(tf, 40, tape_filter)),
+        "tape_filter": tape_filter if tape_filter in REAL_FILTERS else "all",
+        "tape_counts": cached(f"tapec:{tf}", min(ttl, 5), lambda: tape_counts(tf)),
         "themes": cached(f"themes:{tf}", ttl if w <= 300 else 30, lambda: themes_live(tf)),
         "daily": thesis.latest("daily"),
         "hourly": thesis.latest("hourly"),
@@ -218,6 +233,31 @@ def coins_list(tf: str = "7D", theme: str | None = None, catalyst: str | None = 
         if len(out) >= min(limit, 200):
             break
     return {"tf": tf, "count": len(out), "coins": out}
+
+
+LEADER_PERIODS = {"hour": 3600, "day": 86400, "week": 7 * 86400, "month": 30 * 86400}
+
+
+@app.get("/api/leaders")
+def leaders(period: str = "day", real_only: int = 0):
+    """Runner of the day/week/month (by peak market cap), overall and per narrative. A coin counts for the
+    period in which it crossed the runner bar (ts_100k, else launch)."""
+    period = period if period in LEADER_PERIODS else "day"
+    since = int(time.time() - LEADER_PERIODS[period])
+    where = "is_runner=1 AND COALESCE(ts_100k, created_ts) >= ?" + (" AND is_real=1" if real_only else "")
+    rows = get_db().coins(where, (since,), order="ath_mcap DESC", limit=5000)
+    def card(c):
+        return {**slim(c), "top10_pct": c.get("top10_pct"), "why": (c.get("why") or c.get("why_template") or [])[:3]}
+    by = defaultdict(list)
+    for c in rows:
+        for t in (c.get("themes") or ["Unthemed"]):
+            by[t].append(c)
+    themes = sorted(({"theme": t, "runners": len(cs), "real": sum(1 for c in cs if c.get("is_real")),
+                      "top": [card(c) for c in cs[:3]]} for t, cs in by.items()),
+                    key=lambda x: -(x["top"][0]["ath_mcap"] or 0))
+    first = get_db().q("SELECT MIN(created_ts) t FROM coins")[0]["t"]
+    return {"period": period, "since": since, "count": len(rows), "overall": [card(c) for c in rows[:10]],
+            "by_theme": themes, "tracking_since": get_db().kv_get("first_scan_ts") or first}
 
 
 @app.get("/api/runners")
