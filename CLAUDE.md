@@ -151,7 +151,10 @@ txs, else a small public-RPC sample; demo mode synthesizes), rebuilds positions,
 computes stats -> `archetype()` labels (style + risk) -> `describe()` (Claude if keyed, else template) and
 `side_wallet_insights()` (does a side wallet buy before main?). Profiles are stored in the `kol_profiles` table and
 refreshed every `kol_research.refresh_h` by the scheduler. Add a label: edit `archetype()`. Add a stat: `stats()`
-plus a cell in `openKol()` (web/app.js). Profile pictures: X API when `X_BEARER_TOKEN` is set, else unavatar.io/x/<handle>.
+plus a cell in `openKol()` (web/app.js). Profile pictures are served by `/api/pfp/<handle>` (server fetches + caches in the data dir:
+X API photo when `X_BEARER_TOKEN` is set, else unavatar.io; misses retried hourly). UI: a solar system
+(web/app.js `loadKols`/`spaceFrame`/`zoomTo`): KOLs orbit the core on 3 rings, ring colour = style
+(`STYLE_COLORS`), hover pauses the orbit, click zooms and opens the profile, Esc/✕ zooms out.
 
 ### Timeframes
 The dashboard's TIMEFRAME bar (7D … 1S) passes `?tf=` to `/api/state`. `api/server.py:TIMEFRAMES` lists them;

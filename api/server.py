@@ -279,10 +279,54 @@ def kols_list():
         p = kol_research.get_profile(k["name"]) or {}
         s = p.get("stats") or {}
         out.append({**k, "status": p.get("status") or "new", "ts": p.get("ts"), "style": p.get("style") or [],
-                    "risk": p.get("risk") or [], "pfp": (p.get("x") or {}).get("pfp") or
-                    (f"https://unavatar.io/x/{kol_research.handle_of(k)}" if kol_research.handle_of(k) else None),
+                    "risk": p.get("risk") or [], "handle": kol_research.handle_of(k),
+                    "pfp": f"/api/pfp/{kol_research.handle_of(k)}" if kol_research.handle_of(k) else None,
                     "summary": {x: s.get(x) for x in ("positions", "win_rate", "median_size_sol", "total_pnl_sol")}})
     return out
+
+
+_HANDLE = _re.compile(r"^[A-Za-z0-9_]{1,15}$")
+
+
+@app.get("/api/pfp/{handle}")
+def kol_pfp(handle: str):
+    """X profile picture, fetched once and cached in the data dir (so it loads even when the browser
+    can't reach the image host). Tries the X API photo from the KOL's profile, then unavatar.io."""
+    from fastapi.responses import Response
+    from core import http as h
+    from core import kol_research
+    from core.config import DATA_DIR
+    if not _HANDLE.match(handle):
+        raise HTTPException(400, "bad handle")
+    d = DATA_DIR / "pfp"
+    d.mkdir(exist_ok=True)
+    f = d / f"{handle.lower()}.img"
+    meta = d / f"{handle.lower()}.type"
+    miss = d / f"{handle.lower()}.miss"
+    if miss.exists() and time.time() - miss.stat().st_mtime < 3600:
+        raise HTTPException(404, "no profile picture found (retrying hourly)")
+    if f.exists() and time.time() - f.stat().st_mtime < 3 * 86400 and f.stat().st_size > 200:
+        return Response(f.read_bytes(), media_type=meta.read_text() if meta.exists() else "image/jpeg",
+                        headers={"Cache-Control": "max-age=86400"})
+    urls = []
+    for k in kol_research.list_kols():
+        if (kol_research.handle_of(k) or "").lower() == handle.lower():
+            px = ((kol_research.get_profile(k["name"]) or {}).get("x") or {}).get("pfp") or ""
+            if px.startswith("https://pbs.twimg.com/"):
+                urls.append(px)
+    urls += [f"https://unavatar.io/x/{handle}?fallback=false", f"https://unavatar.io/twitter/{handle}?fallback=false"]
+    for u in urls:
+        try:
+            r = h.client().get(u, timeout=12)
+            ctype = r.headers.get("content-type", "")
+            if r.status_code == 200 and ctype.startswith("image/") and len(r.content) > 200:
+                f.write_bytes(r.content)
+                meta.write_text(ctype.split(";")[0])
+                return Response(r.content, media_type=ctype.split(";")[0], headers={"Cache-Control": "max-age=86400"})
+        except Exception:
+            continue
+    miss.touch()
+    raise HTTPException(404, "no profile picture found")
 
 
 @app.get("/api/kols/{name}")

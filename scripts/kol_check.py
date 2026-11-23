@@ -9,6 +9,14 @@ from core.config import load_config  # noqa: E402
 load_config()
 from core import kol_research as K  # noqa: E402
 
+# profile picture through the same server endpoint the dashboard uses
+from api.server import kol_pfp  # noqa: E402
+for handle in ("blknoiz06", "cented7"):
+    try:
+        r = kol_pfp(handle)
+        print("PFP", handle, r.media_type, len(r.body), "bytes")
+    except Exception as e:
+        print("PFP", handle, "FAILED", e)
 K.save_kol({"name": "LiveTest", "twitter": None, "wallet": sys.argv[1], "side_wallets": sys.argv[2:]})
 p = K.research("LiveTest")
 if not p:

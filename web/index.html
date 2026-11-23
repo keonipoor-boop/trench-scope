@@ -129,9 +129,17 @@
   <section class="panel p-mag" id="kollab">
     <header>◆ KOL LAB <i>— paste a KOL's wallets · the agent studies what they buy, their style and risk management</i>
       <span class="hdr-r"><button id="btn-addkol">+ ADD KOL</button></span></header>
-    <div class="kol-wrap">
-      <div class="kol-list" id="kollist"></div>
-      <div class="kol-detail" id="koldetail"><div class="empty">add a KOL to start researching</div></div>
+    <div class="kol-stage" id="kolstage">
+      <div class="kol-space" id="kolspace">
+        <div class="kol-orbit" style="--r:1"></div><div class="kol-orbit" style="--r:2"></div><div class="kol-orbit" style="--r:3"></div>
+        <button class="kol-sun" id="kolsun" title="Add a KOL"><b>KOL</b><span id="kolcount">0 tracked</span><i>+ add</i></button>
+        <div id="kolplanets"></div>
+      </div>
+      <div class="kol-legend" id="kollegend"></div>
+      <aside class="kol-detail" id="koldetail" hidden>
+        <button class="kd-close" id="kd-close" title="Back to the system (Esc)">✕</button>
+        <div id="koldetail-body"></div>
+      </aside>
     </div>
   </section>
 </main>

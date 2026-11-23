@@ -305,3 +305,46 @@ dialog h3 { margin: 0 0 12px; letter-spacing: .12em; font-size: 13px; color: var
 .spin { display: inline-block; animation: spin2 1s linear infinite; } @keyframes spin2 { to { transform: rotate(360deg); } }
 #koladd textarea { display: block; width: 100%; margin-top: 4px; background: #02040799; border: 1px solid var(--faint); border-radius: 4px;
   color: var(--white); padding: 7px 9px; font: 12px var(--mono); resize: vertical; }
+
+/* KOL LAB: solar system */
+.kol-stage { position: relative; height: 680px; overflow: hidden; border-radius: 6px;
+  background: radial-gradient(ellipse at 50% 50%, #1a0b24 0%, #07050c 55%, #030306 100%); }
+.kol-stage::before { content: ""; position: absolute; inset: 0; opacity: .55; pointer-events: none;
+  background-image: radial-gradient(1px 1px at 12% 22%, #fff8, transparent), radial-gradient(1px 1px at 78% 12%, #fff6, transparent),
+    radial-gradient(1px 1px at 34% 78%, #fff5, transparent), radial-gradient(1.5px 1.5px at 88% 64%, #fff7, transparent),
+    radial-gradient(1px 1px at 55% 35%, #fff4, transparent), radial-gradient(1px 1px at 22% 58%, #fff6, transparent),
+    radial-gradient(1px 1px at 66% 88%, #fff5, transparent), radial-gradient(1.5px 1.5px at 8% 90%, #fff6, transparent); }
+.kol-space { position: absolute; inset: 0; transform-origin: 0 0; transition: transform .9s cubic-bezier(.2,.8,.2,1), opacity .5s; }
+.kol-orbit { position: absolute; left: 50%; top: 50%; width: calc(var(--r) * 30%); height: calc(var(--r) * 13%);
+  transform: translate(-50%, -50%); border: 1px dashed #ff3df233; border-radius: 50%; pointer-events: none; }
+#kollab .kol-sun { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 0; cursor: pointer;
+  background: radial-gradient(circle at 38% 34%, #fff 0%, #ffd6fb 18%, #ff3df2 52%, #6b1066 100%); color: #12000f;
+  box-shadow: 0 0 60px 10px #ff3df266, 0 0 140px 40px #a26bff33; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-family: var(--mono); animation: sunpulse 4s ease-in-out infinite; z-index: 1; }
+#kollab .kol-sun b { font-size: 20px; letter-spacing: .14em; } .kol-sun span { font-size: 9px; font-weight: 700; } .kol-sun i { font-style: normal; font-size: 9px; opacity: .7; }
+@keyframes sunpulse { 50% { box-shadow: 0 0 80px 18px #ff3df288, 0 0 180px 60px #a26bff44; } }
+.kol-planet { position: absolute; left: 0; top: 0; border-radius: 50%; cursor: pointer; will-change: transform; z-index: 2;
+  transition: opacity .5s, filter .3s; }
+.kol-planet .pfp { width: 100%; height: 100%; border: 3px solid var(--pc, #fff); box-shadow: 0 0 18px var(--pc, #fff), inset 0 0 10px #0008; font-size: 18px; }
+.kol-planet:hover .pfp { box-shadow: 0 0 34px 4px var(--pc, #fff); }
+.kol-planet .pl-name { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 5px; white-space: nowrap;
+  font: 700 10px var(--mono); color: var(--white); background: #04070bcc; border: 1px solid var(--pc, #fff); border-radius: 9px; padding: 0 8px; }
+.kol-planet.running .pfp { animation: plspin 1.6s linear infinite; border-style: dashed; }
+@keyframes plspin { to { transform: rotate(360deg); } }
+.kol-planet.sel .pfp { box-shadow: 0 0 40px 8px var(--pc, #fff); }
+.kol-stage.zoomed .kol-planet:not(.sel), .kol-stage.zoomed .kol-sun, .kol-stage.zoomed .kol-orbit { opacity: .12; pointer-events: none; }
+.kol-legend { position: absolute; left: 10px; bottom: 8px; display: flex; flex-wrap: wrap; gap: 8px; font-size: 9.5px; color: var(--dim); z-index: 3; }
+.kol-legend span::before { content: "●"; color: var(--c); margin-right: 4px; }
+.kol-detail { position: absolute; top: 10px; right: 10px; bottom: 10px; width: min(64%, 900px); overflow-y: auto; z-index: 5;
+  background: #06040ce8; border: 1px solid #ff3df288; border-radius: 8px; padding: 14px 16px; box-shadow: 0 0 40px -10px var(--mag);
+  backdrop-filter: blur(6px); animation: slidein .5s ease-out; }
+.kol-detail[hidden] { display: none; }
+@keyframes slidein { from { transform: translateX(40px); opacity: 0; } }
+#kollab .kd-close { position: sticky; top: 0; float: right; z-index: 2; background: #0009; border: 1px solid var(--faint); color: var(--white);
+  border-radius: 50%; width: 28px; height: 28px; cursor: pointer; font-size: 13px; }
+.kd-close:hover { border-color: var(--mag); color: var(--mag); }
+@media (max-width: 1100px) {
+  .kol-stage { height: 560px; }
+  .kol-detail { left: 6px; right: 6px; top: auto; bottom: 6px; width: auto; max-height: 72%; }
+  #kollab .kol-sun { width: 90px; height: 90px; margin: -45px 0 0 -45px; }
+}

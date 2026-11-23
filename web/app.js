@@ -339,7 +339,7 @@ renderTfBar(); scheduleRefresh(); setInterval(pollEvents, 3000);
 let KOLS = [], KOL_SEL = null, ADMIN_PW = "";
 const dur = (s) => s == null ? "—" : s >= 86400 ? (s / 86400).toFixed(1) + "d" : s >= 3600 ? (s / 3600).toFixed(1) + "h" : s >= 60 ? Math.round(s / 60) + "m" : Math.round(s) + "s";
 const initials = (n) => esc((n || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?");
-const pfpHtml = (url, name, big) => url && /^https:\/\//.test(url)
+const pfpHtml = (url, name, big) => url && /^(https:\/\/|\/api\/pfp\/)/.test(url)
   ? `<img class="pfp${big ? " big" : ""}" src="${esc(url)}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;pfp${big ? " big" : ""}&quot;>${initials(name)}</div>'">`
   : `<div class="pfp${big ? " big" : ""}">${initials(name)}</div>`;
 const GOOD_RISK = ["Cuts losers fast", "Scales out", "Consistent sizing", "High win rate"];
@@ -347,19 +347,100 @@ const tagsHtml = (style, risk) => (style || []).map(t => `<span class="tag s">${
   (risk || []).map(t => `<span class="tag ${GOOD_RISK.includes(t) ? "good" : "bad"}">${esc(t)}</span>`).join("");
 const handleOf = (tw) => tw ? tw.replace(/\/+$/, "").split("/").pop().replace(/^@/, "") : "";
 
+// solar system: KOLs orbit the KOL core as planets; ring colour = trading style
+const STYLE_COLORS = [["Sniper", "#22e6ff"], ["Scalper", "#39ff88"], ["Swing", "#a26bff"], ["Late momentum", "#ff8a3d"],
+  ["Whale", "#ffd23d"], ["hunter", "#ff3df2"], ["High-frequency", "#4dd0ff"], ["Generalist", "#f2f7ff"]];
+const styleColor = (style) => (STYLE_COLORS.find(([k]) => (style || []).some(s => s.includes(k))) || [0, "#c8d6e2"])[1];
+const PLANETS = new Map();  // name -> {el, ring, angle, speed, size}
+let ZOOMED = null, spaceT0 = performance.now(), HOVER = false, pausedAt = null;
+
+function planetSize(k) { const n = k.summary.positions || 0; return Math.round(46 + Math.min(34, Math.sqrt(n) * 4)); }
+
 async function loadKols() {
   try { KOLS = await j("/api/kols"); } catch { return; }
-  $("#kollist").innerHTML = KOLS.length ? KOLS.map(k => `<div class="kol-card ${k.name === KOL_SEL ? "sel" : ""}" data-name="${esc(k.name)}">
-      ${pfpHtml(k.pfp, k.name)}
-      <div style="min-width:0"><div class="nm">${esc(k.name)} ${k.status === "running" ? '<span class="spin">◌</span>' : ""}</div>
-        <div class="sub">${k.twitter ? "@" + esc(handleOf(k.twitter)) + " · " : ""}${1 + (k.side_wallets || []).length - (k.wallet ? 0 : 1)} wallet(s)
-          ${k.summary.win_rate != null ? " · WR " + k.summary.win_rate + "%" : ""}${k.summary.total_pnl_sol != null ? ` · <span class="${k.summary.total_pnl_sol >= 0 ? "pos" : "neg"}">${k.summary.total_pnl_sol} SOL</span>` : ""}</div>
-        <div class="tags">${k.status === "running" ? '<span class="tag s">RESEARCHING…</span>' : k.status === "new" ? '<span class="tag s">QUEUED</span>' : tagsHtml(k.style.slice(0, 2), [])}</div></div></div>`).join("")
-    : `<div class="empty">no KOLs yet<br><br><span class="dim">click + ADD KOL and paste their wallets</span></div>`;
-  document.querySelectorAll(".kol-card").forEach(el => el.onclick = () => openKol(el.dataset.name));
-  if (!KOL_SEL && KOLS.length) openKol(KOLS[0].name);
-  else if (KOL_SEL && KOLS.find(k => k.name === KOL_SEL)?.status !== "running" && $("#koldetail").dataset.status === "running") openKol(KOL_SEL);
+  $("#kolcount").textContent = `${KOLS.length} tracked`;
+  const host = $("#kolplanets"), names = new Set(KOLS.map(k => k.name));
+  for (const [n, p] of PLANETS) if (!names.has(n)) { p.el.remove(); PLANETS.delete(n); }
+  KOLS.forEach((k, i) => {
+    let p = PLANETS.get(k.name);
+    if (!p) {
+      const el = document.createElement("div"); el.className = "kol-planet"; el.dataset.name = k.name;
+      el.onclick = (e) => { e.stopPropagation(); zoomTo(k.name); };
+      el.onmouseenter = () => { HOVER = true; }; el.onmouseleave = () => { HOVER = false; };
+      host.appendChild(el);
+      const ring = i % 3 + 1;
+      p = { el, ring, angle: (i * 2.399) % (Math.PI * 2), speed: (0.10 / ring) * (i % 2 ? 1 : 0.8) };
+      PLANETS.set(k.name, p);
+    }
+    p.size = planetSize(k);
+    const sig = JSON.stringify([k.status, k.style, k.pfp, k.summary]);
+    if (p.sig !== sig) {
+      p.sig = sig;
+      p.el.style.width = p.el.style.height = p.size + "px";
+      p.el.style.setProperty("--pc", k.status === "running" ? "#22e6ff" : styleColor(k.style));
+      p.el.classList.toggle("running", k.status === "running" || k.status === "new");
+      p.el.title = `${k.name} · ${(k.style || []).join(", ") || k.status}`;
+      p.el.innerHTML = pfpHtml(k.pfp, k.name) + `<span class="pl-name">${esc(k.name)}${k.summary.win_rate != null ? " · " + k.summary.win_rate + "%" : ""}</span>`;
+    }
+  });
+  $("#kollegend").innerHTML = STYLE_COLORS.map(([k, c]) => `<span style="--c:${c}">${k === "hunter" ? "Narrative hunter" : k}</span>`).join("") +
+    (KOLS.length ? "" : '<span style="--c:#ff3df2">click the core to add your first KOL</span>');
+  if (ZOOMED && !PLANETS.has(ZOOMED)) zoomOut();
+  if (ZOOMED && $("#koldetail").dataset.status === "running" && KOLS.find(k => k.name === ZOOMED)?.status !== "running") openKol(ZOOMED);
 }
+
+function planetPos(p, t) {
+  const st = $("#kolstage"), W = st.clientWidth, H = st.clientHeight;
+  const a = p.angle + (ZOOMED ? p.frozenT ?? t : t) * p.speed;
+  const rx = W * 0.15 * p.ring, ry = H * 0.065 * p.ring * (H / Math.max(W, 1)) * 2.2;
+  const bob = Math.sin(t * 1.3 + p.angle * 3) * 4;
+  return { x: W / 2 + Math.cos(a) * rx - p.size / 2, y: H / 2 + Math.sin(a) * ry - p.size / 2 + bob, depth: Math.sin(a) };
+}
+
+function spaceFrame(now) {
+  // hovering a planet pauses the orbit so it's easy to click
+  if (HOVER && pausedAt == null) pausedAt = now;
+  if (!HOVER && pausedAt != null) { spaceT0 += now - pausedAt; pausedAt = null; }
+  const t = ((pausedAt ?? now) - spaceT0) / 1000;
+  for (const p of PLANETS.values()) {
+    const { x, y, depth } = planetPos(p, t);
+    const sc = 0.8 + (depth + 1) * 0.15;  // nearer (lower) planets are bigger, like a tilted orbit
+    p.el.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
+    p.el.style.zIndex = depth > 0 ? 3 : 1;
+    p.last = { x, y, sc };
+  }
+  requestAnimationFrame(spaceFrame);
+}
+
+function zoomTo(name) {
+  const p = PLANETS.get(name); if (!p) return;
+  const st = $("#kolstage"), W = st.clientWidth, H = st.clientHeight, narrow = W < 900;
+  const t = ((pausedAt ?? performance.now()) - spaceT0) / 1000;
+  for (const q of PLANETS.values()) q.frozenT = t;   // freeze the system while zoomed
+  ZOOMED = name; KOL_SEL = name;
+  document.querySelectorAll(".kol-planet").forEach(el => el.classList.toggle("sel", el.dataset.name === name));
+  const { x, y } = planetPos(p, t), z = narrow ? 1.6 : 2.2;
+  const cx = x + p.size / 2, cy = y + p.size / 2;
+  const tx = (narrow ? W / 2 : W * 0.18) - cx * z, ty = (narrow ? H * 0.16 : H / 2) - cy * z;
+  $("#kolspace").style.transform = `translate(${tx}px, ${ty}px) scale(${z})`;
+  st.classList.add("zoomed");
+  setTimeout(() => { $("#koldetail").hidden = false; openKol(name); }, 450);
+}
+
+function zoomOut() {
+  ZOOMED = null; KOL_SEL = null;
+  const st = $("#kolstage"); st.classList.remove("zoomed");
+  $("#kolspace").style.transform = ""; $("#koldetail").hidden = true;
+  document.querySelectorAll(".kol-planet").forEach(el => el.classList.remove("sel"));
+  HOVER = false;
+  const t = ((pausedAt ?? performance.now()) - spaceT0) / 1000;
+  for (const q of PLANETS.values()) { if (q.frozenT != null) { q.angle += (q.frozenT - t) * q.speed; } q.frozenT = null; }
+}
+$("#kd-close").onclick = zoomOut;
+$("#kolstage").addEventListener("click", (e) => { if (ZOOMED && e.target.closest(".kol-space") && !e.target.closest(".kol-planet")) zoomOut(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && ZOOMED && !document.querySelector("dialog[open]")) zoomOut(); });
+$("#kolsun").onclick = (e) => { e.stopPropagation(); openKolForm(null); };
+requestAnimationFrame(spaceFrame);
 
 function mixHtml(obj) {
   const e = Object.entries(obj || {}); const tot = e.reduce((a, [, v]) => a + v, 0) || 1;
@@ -368,11 +449,10 @@ function mixHtml(obj) {
 
 async function openKol(name) {
   KOL_SEL = name;
-  document.querySelectorAll(".kol-card").forEach(el => el.classList.toggle("sel", el.dataset.name === name));
   let d; try { d = await j("/api/kols/" + encodeURIComponent(name)); } catch { return; }
   const k = d.kol, p = d.profile || {}, s = p.stats || {}, x = p.x || {};
   $("#koldetail").dataset.status = p.status || "new";
-  const pfp = x.pfp || (k.twitter ? `https://unavatar.io/x/${handleOf(k.twitter)}` : null);
+  const pfp = k.twitter ? `/api/pfp/${encodeURIComponent(handleOf(k.twitter))}` : null;
   const tw = k.twitter && /^https?:\/\//.test(k.twitter) ? k.twitter : null;
   const head = `<div class="kd-top">${pfpHtml(pfp, k.name, true)}
     <div style="min-width:0"><div class="kd-name">${esc(x.display_name || k.name)}</div>
@@ -382,10 +462,10 @@ async function openKol(name) {
       <div class="tags" style="margin-top:6px">${tagsHtml(p.style, p.risk)}</div></div>
     <div class="kd-actions"><button id="kd-re">${p.status === "running" ? "RESEARCHING…" : "RE-RESEARCH"}</button><button id="kd-edit">EDIT WALLETS</button><button id="kd-del">DELETE</button></div></div>`;
   if (!p.stats) {
-    $("#koldetail").innerHTML = head + `<div class="empty">${p.status === "running" || p.status === "new" ? '<span class="spin">◌</span> researching wallets… this can take a few minutes (longer without a Helius key)' : p.status === "error" ? "research failed: see THE TRACE" : "not researched yet"}</div>`;
+    $("#koldetail-body").innerHTML = head + `<div class="empty">${p.status === "running" || p.status === "new" ? '<span class="spin">◌</span> researching wallets… this can take a few minutes (longer without a Helius key)' : p.status === "error" ? "research failed: see THE TRACE" : "not researched yet"}</div>`;
   } else {
     const pct = (v) => v == null ? "—" : v + "%";
-    $("#koldetail").innerHTML = head + `
+    $("#koldetail-body").innerHTML = head + `
     <div class="kd-grid"><div>
       <div class="sec"><span>PROFILE</span><span>${p.description_by === "claude" ? "CLAUDE" : "TEMPLATE"} · ${esc(p.data_source || "")} · ${ago(p.ts)} ago</span></div>
       <div class="kd-desc">${esc(p.description)}</div>
@@ -421,7 +501,7 @@ async function openKol(name) {
     </div></div>`;
   }
   $("#kd-re").onclick = () => kolPost(`/api/kols/${encodeURIComponent(name)}/research`, "POST");
-  $("#kd-del").onclick = () => { if (confirm(`Delete ${name} and their profile?`)) kolPost(`/api/kols/${encodeURIComponent(name)}`, "DELETE", () => { KOL_SEL = null; $("#koldetail").innerHTML = '<div class="empty">deleted</div>'; }); };
+  $("#kd-del").onclick = () => { if (confirm(`Delete ${name} and their profile?`)) kolPost(`/api/kols/${encodeURIComponent(name)}`, "DELETE", () => { KOL_SEL = null; zoomOut(); }); };
   $("#kd-edit").onclick = () => openKolForm(k);
 }
 
@@ -429,7 +509,7 @@ async function kolPost(url, method, after) {
   const pw = await adminPw(); if (pw === null) return;
   const r = await fetch(url, { method, headers: { "x-admin-password": pw } });
   if (!r.ok) { alert(r.status === 403 ? "Wrong admin password." : "Request failed (" + r.status + ")"); ADMIN_PW = ""; return; }
-  after && after(); setTimeout(loadKols, 500); setTimeout(() => KOL_SEL && openKol(KOL_SEL), 800);
+  after && after(); setTimeout(loadKols, 500); setTimeout(() => ZOOMED && openKol(ZOOMED), 800);
 }
 
 async function adminPw() {
@@ -456,7 +536,7 @@ $("#koladd-form").addEventListener("submit", async (e) => {
       body: JSON.stringify({ name: f.name.value, twitter: f.twitter.value, wallet: f.wallet.value, side_wallets: f.side_wallets.value }) });
     const out = await r.json().catch(() => ({}));
     if (!r.ok) { $("#kol-msg").textContent = r.status === 403 ? "Wrong admin password." : (out.detail || "Save failed (" + r.status + ")"); return; }
-    $("#koladd").close(); KOL_SEL = f.name.value.trim(); loadKols(); setTimeout(() => openKol(KOL_SEL), 600);
+    $("#koladd").close(); const nm = f.name.value.trim(); await loadKols(); setTimeout(() => zoomTo(nm), 300);
   } catch (err) { $("#kol-msg").textContent = "Save failed: " + err; }
 });
 loadKols(); setInterval(loadKols, 6000);
