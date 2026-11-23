@@ -128,3 +128,78 @@ def to_update(coin: dict, feats: dict) -> dict:
     if not coin.get("unique_traders") and feats.get("sample_traders") and n:
         upd["unique_traders"] = int(feats["sample_traders"] / n * max(coin.get("txns_24h") or 0, n))
     return upd
+
+
+def _usd(v):
+    if not v:
+        return "$0"
+    return f"${v / 1e6:.2f}M" if v >= 1e6 else f"${v / 1e3:.0f}k" if v >= 1e3 else f"${v:.0f}"
+
+
+HEADLINES = {
+    "fees": "Bot-painted volume: lots of volume, almost no fees behind it",
+    "wash": "Wash trading: the same wallets buying and selling to fake activity",
+    "chart": "Staircase chart: stepped up by bots, then dumped",
+    "top10": "Concentrated supply: a few wallets hold most of it",
+    "holders": "Thin holder base: too few holders for a real run",
+    "traders": "Few real traders behind the volume",
+}
+
+
+def explain_fake(c: dict) -> dict:
+    """Plain-language 'why it's flagged' from the failing required checks + the numbers behind them."""
+    sig = c.get("signals") or {}
+    failing = [k for k, v in sig.items() if v.get("passed") is False and v.get("required")]
+    vol = c.get("volume_24h") or c.get("volume_24h_jup")
+    traders = c.get("unique_traders")
+    reasons = []
+    for k in ["fees", "wash", "chart", "top10", "holders", "traders"]:
+        if k not in failing:
+            continue
+        if k == "fees":
+            if c.get("fee_paying_volume_pct") is not None:
+                reasons.append(f"Only {c['fee_paying_volume_pct']:.0f}% of its meaningful volume paid real fees, and fees were just "
+                               f"{c.get('fee_volume_pct') or 0:.2f}% of volume. Real buyers trading through terminals pay ~0.5-1%; "
+                               "bots that paint charts call the program directly and pay almost nothing.")
+            elif c.get("organic_score") is not None:
+                reasons.append(f"Jupiter rates only {c['organic_score']:.0f}/100 of its volume as organic"
+                               + (f" ({c['organic_volume_pct']:.1f}% organic volume)." if c.get("organic_volume_pct") is not None else "."))
+            else:
+                reasons.append(sig[k].get("note") or "Fees don't match the volume.")
+        elif k == "wash":
+            bits = []
+            if c.get("round_trip_pct") is not None:
+                bits.append(f"{c['round_trip_pct']:.0f}% of sampled wallets both bought and sold it")
+            if (c.get("symmetric_wallet_pct") or 0) > 0:
+                bits.append(f"{c['symmetric_wallet_pct']:.0f}% had near-identical buy and sell totals")
+            if c.get("size_mode_pct") is not None:
+                bits.append(f"{c['size_mode_pct']:.0f}% of trades were the exact same size")
+            if c.get("txs_per_trader") is not None:
+                bits.append(f"{c['txs_per_trader']:.1f} trades per wallet")
+            if not bits and vol and traders:
+                bits.append(f"{_usd(vol / traders)} of volume per trader (real coins are usually a few hundred dollars)")
+            reasons.append(("Wash-trading pattern: " + ", ".join(bits) + ".") if bits else (sig[k].get("note") or ""))
+        elif k == "chart":
+            r = (f"The chart climbed in a stair-step (staircase score {c.get('staircase_score', 0):.2f}/1): "
+                 f"{(c.get('green_ratio') or 0) * 100:.0f}% green candles of near-equal size with a max pullback of only "
+                 f"{c.get('max_pullback_pct') or 0:.0f}%. Organic pumps are jagged.")
+            if c.get("cliff_dump"):
+                r += " Then it fell off a cliff right after the peak."
+            reasons.append(r)
+        elif k == "top10":
+            reasons.append(f"The top 10 wallets hold {c.get('top10_pct', 0):.0f}% of the supply, so a handful of sellers can end it.")
+        elif k == "holders":
+            reasons.append(f"Only {c.get('holders', 0):,} holders for a {_usd(c.get('ath_mcap'))} peak. Real runs pull in thousands.")
+        elif k == "traders":
+            reasons.append(f"Only ~{traders or 0:,} unique traders behind {_usd(vol)} of volume.")
+    metrics = {
+        "volume_24h": vol, "fees_sol": c.get("fees_sol"), "fee_volume_pct": c.get("fee_volume_pct"),
+        "fee_paying_volume_pct": c.get("fee_paying_volume_pct"), "holders": c.get("holders"),
+        "top10_pct": c.get("top10_pct"), "unique_traders": traders,
+        "volume_per_trader": round(vol / traders) if vol and traders else None,
+        "round_trip_pct": c.get("round_trip_pct"), "size_mode_pct": c.get("size_mode_pct"),
+        "staircase_score": c.get("staircase_score"), "cliff_dump": c.get("cliff_dump"),
+        "organic_score": c.get("organic_score"),
+    }
+    return {"headline": HEADLINES.get(failing[0] if failing else "", "Fails the REAL checks"),
+            "failed": failing, "reasons": [r for r in reasons if r], "metrics": metrics}

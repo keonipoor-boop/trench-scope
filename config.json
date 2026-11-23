@@ -62,7 +62,9 @@
   },
 
   "kol_research": {
-    "refresh_h": 6,
+    "refresh_h": 1,
+    "min_holding_sol": 0.01,
+    "max_holdings": 12,
     "helius_pages": 5,
     "rpc_url": "https://api.mainnet-beta.solana.com",
     "rpc_sample": 60

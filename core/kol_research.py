@@ -227,7 +227,7 @@ def token_info(mints: list[str]) -> tuple[dict, float]:
                 info[c["mint"]] = {"symbol": c.get("symbol"), "name": c.get("name"), "launchpad": "pump.fun",
                                    "created_ts": c.get("created_ts"), "mcap": c.get("usd_market_cap") or 0,
                                    "usd_price": (c.get("usd_market_cap") or 0) / 1e9, "supply": 1e9,
-                                   "holders": c.get("holders"), "ath": c.get("ath_mcap")}
+                                   "holders": c.get("holders"), "ath": c.get("ath_mcap"), "image": c.get("image")}
         return info, 150.0
     from sources.jupiter import _iso
     base = get_config().get_path("sources.jupiter.base_url", "https://lite-api.jup.ag")
@@ -244,7 +244,7 @@ def token_info(mints: list[str]) -> tuple[dict, float]:
                              "created_ts": _iso((t.get("firstPool") or {}).get("createdAt")) or _iso(t.get("createdAt")),
                              "mcap": t.get("mcap") or 0, "usd_price": float(t.get("usdPrice") or 0),
                              "supply": float(t.get("circSupply") or t.get("totalSupply") or 1e9),
-                             "holders": t.get("holderCount"), "twitter": t.get("twitter")}
+                             "holders": t.get("holderCount"), "twitter": t.get("twitter"), "image": t.get("icon")}
     return info, sol_usd or 150.0
 
 
@@ -301,6 +301,7 @@ def positions(trades: list[dict], info: dict, sol_usd: float) -> list[dict]:
             "multiple": round((ret + (0 if closed else unreal)) / inv, 2) if inv else None,
             "closed": closed, "buys": len(buys), "sells": len(sells),
             "hold_s": int(end - first["ts"]) if first.get("ts") else None,
+            "image": ti.get("image"), "mcap_now": ti.get("mcap") or None,
             "entry_mcap": round(entry_mcap) if entry_mcap else None, "entry_age_s": int(age) if age is not None and age >= 0 else None,
         })
     return out
@@ -498,6 +499,10 @@ def research(name: str) -> dict | None:
         sides = side_wallet_insights(per_wallet, k.get("wallet"))
         text, by = describe(k, s, style, risk, sides)
         recent = sorted(all_pos, key=lambda p: -(p.get("first_buy_ts") or 0))[:15]
+        # what they're holding right now (open positions that still have some value): the KOL's moons
+        holdings = sorted([p for p in all_pos if not p["closed"] and (p["unrealized_sol"] >= _conf().get("min_holding_sol", 0.01)
+                                                                       or not info.get(p["mint"], {}).get("usd_price"))],
+                          key=lambda p: -(p["unrealized_sol"] or p["invested_sol"]))[: _conf().get("max_holdings", 12)]
         profile = {
             "name": name, "twitter": k.get("twitter"), "x": x_profile(handle_of(k)),
             "wallets": [{"address": w, "role": "main" if w == k.get("wallet") else "side",
@@ -506,7 +511,7 @@ def research(name: str) -> dict | None:
                         for w, d in per_wallet.items()],
             "stats": s, "style": style, "risk": risk, "side_insights": sides,
             "description": text, "description_by": by, "data_source": src, "sol_usd": sol_usd,
-            "recent": recent,
+            "recent": recent, "holdings": holdings,
         }
         set_status(name, "done", profile)
         run.result = f"{name}: {s.get('positions', 0)} positions, {', '.join(style)}"

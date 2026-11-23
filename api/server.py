@@ -37,9 +37,9 @@ def cached(key, ttl, fn):
 
 
 def slim(c: dict) -> dict:
-    return {k: c.get(k) for k in ("mint", "name", "symbol", "image", "created_ts", "ath_mcap", "usd_market_cap",
+    return {"fake_headline": (c.get("fake") or {}).get("headline"), **{k: c.get(k) for k in ("mint", "name", "symbol", "image", "created_ts", "ath_mcap", "usd_market_cap",
                                   "ts_100k", "time_to_100k_min", "is_real", "primary_catalyst", "themes",
-                                  "holders", "volume_24h", "price_change_24h")}
+                                  "holders", "volume_24h", "price_change_24h")}}
 
 
 # Timeframes for the dashboard's TF bar (seconds). Runners count in a window by the moment they
@@ -323,11 +323,81 @@ def kols_list():
         out.append({**k, "status": p.get("status") or "new", "ts": p.get("ts"), "style": p.get("style") or [],
                     "risk": p.get("risk") or [], "handle": kol_research.handle_of(k),
                     "pfp": f"/api/pfp/{kol_research.handle_of(k)}" if kol_research.handle_of(k) else None,
-                    "summary": {x: s.get(x) for x in ("positions", "win_rate", "median_size_sol", "total_pnl_sol")}})
+                    "summary": {x: s.get(x) for x in ("positions", "win_rate", "median_size_sol", "total_pnl_sol")},
+                    "researched_ts": p.get("ts"),
+                    "holdings": [{x: h.get(x) for x in ("mint", "symbol", "name", "image", "first_buy_ts", "invested_sol",
+                                                         "unrealized_sol", "multiple", "entry_mcap", "mcap_now")}
+                                 for h in (p.get("holdings") or [])][:8]})
     return out
 
 
 _HANDLE = _re.compile(r"^[A-Za-z0-9_]{1,15}$")
+_MINT = _re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,48}$")
+
+
+def _safe_img_url(u) -> bool:
+    """Only public https URLs: coin metadata is attacker-controlled, so never fetch localhost/IPs."""
+    from urllib.parse import urlparse
+    try:
+        x = urlparse(u or "")
+    except ValueError:
+        return False
+    host = (x.hostname or "").lower()
+    return x.scheme == "https" and bool(host) and "." in host and not _re.match(r"^[\d.]+$|^\[", host) \
+        and host not in ("localhost",) and not host.endswith((".local", ".internal"))
+
+
+@app.get("/api/img/{mint}")
+def coin_img(mint: str):
+    """Coin picture, fetched once and cached in the data dir. Tries the coin's own image link, the KOL
+    holdings' link, Jupiter's icon, then DexScreener's token-image CDN. Misses retry after an hour."""
+    from fastapi.responses import Response
+    from core import http as h
+    from core.config import DATA_DIR
+    if not _MINT.match(mint):
+        raise HTTPException(400, "bad mint")
+    d = DATA_DIR / "img"
+    d.mkdir(exist_ok=True)
+    f, meta, miss = d / f"{mint}.img", d / f"{mint}.type", d / f"{mint}.miss"
+    hdr = {"Cache-Control": "max-age=86400"}
+    if f.exists() and f.stat().st_size > 100:
+        return Response(f.read_bytes(), media_type=meta.read_text() if meta.exists() else "image/png", headers=hdr)
+    if miss.exists() and time.time() - miss.stat().st_mtime < 3600:
+        raise HTTPException(404, "no image (retrying hourly)")
+    urls = []
+    c = get_db().get_coin(mint)
+    if c and c.get("image"):
+        urls.append(c["image"])
+    try:
+        from core import kol_research
+        for k in kol_research.list_kols():
+            for hd in ((kol_research.get_profile(k["name"]) or {}).get("holdings") or []):
+                if hd.get("mint") == mint and hd.get("image"):
+                    urls.append(hd["image"])
+    except Exception:
+        pass
+    try:
+        rows = h.get(f"https://lite-api.jup.ag/tokens/v2/search?query={mint}", rate_key="jupiter", per_min=50, retries=1)
+        urls += [t.get("icon") for t in rows if isinstance(rows, list) and t.get("id") == mint and t.get("icon")]
+    except Exception:
+        pass
+    urls.append(f"https://dd.dexscreener.com/ds-data/tokens/solana/{mint}.png?size=lg")
+    for u in dict.fromkeys(u for u in urls if u):
+        if u.startswith("ipfs://"):
+            u = "https://ipfs.io/ipfs/" + u[7:]
+        if not _safe_img_url(u):
+            continue
+        try:
+            r = h.client().get(u, timeout=10)
+            ctype = r.headers.get("content-type", "").split(";")[0]
+            if r.status_code == 200 and ctype.startswith("image/") and 100 < len(r.content) < 3_000_000:
+                f.write_bytes(r.content)
+                meta.write_text(ctype)
+                return Response(r.content, media_type=ctype, headers=hdr)
+        except Exception:
+            continue
+    miss.touch()
+    raise HTTPException(404, "no image found")
 
 
 @app.get("/api/pfp/{handle}")

@@ -16,6 +16,7 @@ from collections import defaultdict
 
 from catalysts.base import load_rules, classify
 from core import llm, narratives
+from core.forensics import explain_fake
 from core.config import get_config, load_json_data
 from core.db import get_db
 from core.events import AgentRun, agent_status, log
@@ -186,6 +187,7 @@ def scan(backfill_days: float | None = None) -> dict:
             for c in runners.values():
                 try:
                     c["signals"], c["is_real"] = evaluate_all(c, signals)
+                    c["fake"] = explain_fake(c) if c["is_real"] is False else {}  # {} clears a stale verdict
                     c["primary_catalyst"], c["catalysts"] = classify(c, rules, ctx)
                     c["why_template"] = template_why(c)
                     if final and llm_budget[0] and not c.get("why_llm") and c.get("deep_ts"):

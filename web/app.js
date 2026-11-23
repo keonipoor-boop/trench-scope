@@ -234,9 +234,10 @@ async function openCoin(mint) {
     ["solscan", "https://solscan.io/token/" + c.mint], ["twitter", c.twitter], ["website", c.website], ["telegram", c.telegram]]
     .filter(l => l[1] && /^https?:\/\//.test(l[1])).map(l => `<a href="${esc(l[1])}" target="_blank" rel="noopener noreferrer">${l[0]} ↗</a>`).join("");
   const why = c.why || c.why_template || [];
-  $("#coin").innerHTML = `<div class="cf-top">${c.image && /^https?:/.test(c.image) ? `<img src="${esc(c.image)}" alt="" onerror="this.remove()">` : ""}
+  $("#coin").innerHTML = `<div class="cf-top"><img src="/api/img/${encodeURIComponent(c.mint)}" alt="" onerror="this.remove()">
       <div style="flex:1;min-width:0"><div class="cf-sym">$${esc(c.symbol)} ${badge}</div><div class="cf-name">${esc(c.name)} · ${esc(c.mint.slice(0, 6))}…${esc(c.mint.slice(-6))}${c.demo ? " · demo" : ""}</div></div>
       <div style="text-align:right"><div class="midnum" style="color:#39ff88">${usd(c.ath_mcap)}</div><div class="dim">ATH · now ${usd(c.usd_market_cap)}</div></div></div>
+    ${fakeBlock(c)}
     <div class="cf-cat"><div class="lbl">◆ ${esc(CAT[c.primary_catalyst] || "UNCLASSIFIED")}</div>
       <div class="sec" style="margin-top:6px"><span>WHY IT RAN</span><span>${c.why_llm ? "CLAUDE" : "TEMPLATE"}</span></div>
       <ul>${why.map(b => `<li>${esc(b)}</li>`).join("")}</ul></div>
@@ -365,7 +366,10 @@ async function loadKols() {
   try { KOLS = await j("/api/kols"); } catch { return; }
   $("#kolcount").textContent = `${KOLS.length} tracked`;
   const host = $("#kolplanets"), names = new Set(KOLS.map(k => k.name));
-  for (const [n, p] of PLANETS) if (!names.has(n)) { p.el.remove(); PLANETS.delete(n); }
+  for (const [n, p] of PLANETS) if (!names.has(n)) {
+    for (const el of [p.el, ...(p.moons || []).map(m => m.el)]) el.parentNode && el.parentNode.removeChild(el);
+    PLANETS.delete(n);
+  }
   KOLS.forEach((k, i) => {
     let p = PLANETS.get(k.name);
     if (!p) {
@@ -387,12 +391,38 @@ async function loadKols() {
       p.el.title = `${k.name} · ${(k.style || []).join(", ") || k.status}`;
       p.el.innerHTML = pfpHtml(k.pfp, k.name) + `<span class="pl-name">${esc(k.name)}${k.summary.win_rate != null ? " · " + k.summary.win_rate + "%" : ""}</span>`;
     }
+    syncMoons(p, k, host);
   });
   $("#kollegend").innerHTML = STYLE_COLORS.map(([k, c]) => `<span style="--c:${c}">${k === "hunter" ? "Narrative hunter" : k}</span>`).join("") +
     (KOLS.length ? "" : '<span style="--c:#ff3df2">click the core to add your first KOL</span>');
   if (ZOOMED && !PLANETS.has(ZOOMED)) zoomOut();
   if (ZOOMED && $("#koldetail").dataset.status === "running" && KOLS.find(k => k.name === ZOOMED)?.status !== "running") openKol(ZOOMED);
 }
+
+// moons = coins the KOL is holding right now (open positions), with live hold age
+const holdAge = (h) => h.first_buy_ts ? dur(Date.now() / 1000 - h.first_buy_ts) : "—";
+function syncMoons(p, k, host) {
+  const hs = k.holdings || [], sig = JSON.stringify(hs.map(h => [h.mint, h.image, h.multiple]));
+  if (p.moonSig !== sig) {
+    for (const m of p.moons || []) m.el.parentNode && m.el.parentNode.removeChild(m.el);
+    p.moons = hs.map((h, i) => {
+      const el = document.createElement("div");
+      el.className = "kol-moon"; el.dataset.planet = k.name;
+      el.innerHTML = coinImg(h.image, h.symbol, false, h.mint) + `<span class="mn-age"></span>`;
+      el.onclick = (e) => { e.stopPropagation(); holdingPop(k, h, el); };
+      el.onmouseenter = () => { HOVER = true; }; el.onmouseleave = () => { HOVER = false; };
+      host.appendChild(el);
+      return { el, h, phase: (i / Math.max(1, hs.length)) * Math.PI * 2 };
+    });
+    p.moonSig = sig;
+  }
+  for (const m of p.moons || []) {  // refresh the ticking hold age + tooltip
+    const h = m.h, x = h.multiple != null ? ` · ${h.multiple}x` : "";
+    m.el.querySelector(".mn-age").textContent = holdAge(h);
+    m.el.title = `$${h.symbol} · holding ${holdAge(h)} · ${h.invested_sol} SOL in${x}`;
+  }
+}
+setInterval(() => { for (const p of PLANETS.values()) for (const m of p.moons || []) m.el.querySelector(".mn-age").textContent = holdAge(m.h); }, 15000);
 
 function planetPos(p, t) {
   const st = $("#kolstage"), W = st.clientWidth, H = st.clientHeight;
@@ -413,6 +443,15 @@ function spaceFrame(now) {
     p.el.style.transform = `translate(${x}px, ${y}px) scale(${sc})`;
     p.el.style.zIndex = depth > 0 ? 3 : 1;
     p.last = { x, y, sc };
+    const moons = p.moons || [], cx = x + p.size / 2, cy = y + p.size / 2;
+    const mt = ZOOMED ? (p.frozenT ?? t) : t;
+    moons.forEach((m, i) => {
+      const ms = 22, orbit = p.size * 0.5 * sc + 22 + (i % 2) * 14;  // two staggered moon lanes
+      const a = m.phase + mt * (0.55 - (i % 2) * 0.15);
+      const mx = cx + Math.cos(a) * orbit * 1.15 - ms / 2, my = cy - 6 + Math.sin(a) * orbit * 0.55 - ms / 2;
+      m.el.style.transform = `translate(${mx}px, ${my}px)`;
+      m.el.style.zIndex = Math.sin(a) > 0 ? (depth > 0 ? 4 : 2) : (depth > 0 ? 2 : 0);   // behind the planet on the far side
+    });
   }
   requestAnimationFrame(spaceFrame);
 }
@@ -424,6 +463,7 @@ function zoomTo(name) {
   for (const q of PLANETS.values()) q.frozenT = t;   // freeze the system while zoomed
   ZOOMED = name; KOL_SEL = name;
   document.querySelectorAll(".kol-planet").forEach(el => el.classList.toggle("sel", el.dataset.name === name));
+  document.querySelectorAll(".kol-moon").forEach(el => el.classList.toggle("of-sel", el.dataset.planet === name));
   const { x, y } = planetPos(p, t), z = narrow ? 1.6 : 2.2;
   const cx = x + p.size / 2, cy = y + p.size / 2;
   const tx = (narrow ? W / 2 : W * 0.18) - cx * z, ty = (narrow ? H * 0.16 : H / 2) - cy * z;
@@ -499,6 +539,10 @@ async function openKol(name) {
       <div class="sec"><span>LAUNCHPADS</span></div>${mixHtml(s.launchpads)}
       <div class="sec"><span>BEST / WORST</span></div>
       ${[...(s.best || []), ...(s.worst || [])].map(b => `<div class="kv"><span>$${esc(b.symbol)}</span><b class="${b.pnl_sol >= 0 ? "pos" : "neg"}">${b.pnl_sol} SOL · ${b.multiple ?? "—"}x</b></div>`).join("") || '<div class="dim">—</div>'}
+      <div class="sec"><span>HOLDING NOW</span><span>${(p.holdings || []).length} coins · as of ${ago(p.ts)} ago</span></div>
+      <table class="ktable"><tr><th>COIN</th><th>HOLDING</th><th>IN</th><th>NOW</th><th>X</th></tr>
+        ${(p.holdings || []).map(r => `<tr><td>${coinImg(r.image, r.symbol, false, r.mint).replace('class="cimg"', 'class="cimg" style="width:18px;height:18px;border-radius:5px;display:inline-grid;vertical-align:middle;font-size:8px;margin-right:5px"')}$${esc(r.symbol)}</td>
+          <td>${holdAge(r)}</td><td>${r.invested_sol}</td><td>${r.unrealized_sol ?? "—"}</td><td class="${(r.multiple || 0) >= 1 ? "pos" : "neg"}">${r.multiple ?? "—"}</td></tr>`).join("") || '<tr><td colspan="5" class="dim">not holding anything (in the sampled history)</td></tr>'}</table>
       <div class="sec"><span>RECENT BUYS</span></div>
       <table class="ktable"><tr><th>COIN</th><th>ENTRY</th><th>SIZE</th><th>X</th><th>HOLD</th></tr>
         ${(p.recent || []).map(r => `<tr><td>$${esc(r.symbol)}</td><td>${usd(r.entry_mcap)}</td><td>${r.invested_sol}</td>
@@ -547,6 +591,26 @@ $("#koladd-form").addEventListener("submit", async (e) => {
 loadKols(); setInterval(loadKols, 6000);
 
 // ---- coin popover (Claude-style menu card) ------------------------------------------
+function fakeBlock(c, compact) {
+  const f = c.fake || {};
+  if (c.is_real !== false || !f.headline) return "";
+  const m = f.metrics || {}, n = (v) => v == null ? "—" : Number(v).toLocaleString();
+  const cell = (k, v, bad) => `<div><span>${k}</span><b${bad ? ' style="color:#ff9aa9"' : ""}>${v}</b></div>`;
+  const failed = new Set(f.failed || []);
+  return `<div class="fake-box${compact ? " compact" : ""}">
+    <div class="fake-h">⚠ Why it's flagged fake</div>
+    <div class="fake-head">${esc(f.headline)}</div>
+    <ul>${(f.reasons || []).map(r => `<li>${esc(r)}</li>`).join("")}</ul>
+    <div class="fake-grid">
+      ${cell("Volume 24h", usd(m.volume_24h))}${cell("Fees paid", m.fees_sol != null ? m.fees_sol + " SOL" : "—", failed.has("fees"))}
+      ${cell("Fees / volume", m.fee_volume_pct != null ? m.fee_volume_pct + "%" : "—", failed.has("fees"))}${cell("Volume paying fees", m.fee_paying_volume_pct != null ? m.fee_paying_volume_pct + "%" : "—", failed.has("fees"))}
+      ${cell("Holders", n(m.holders), failed.has("holders"))}${cell("Top 10 hold", m.top10_pct != null ? m.top10_pct + "%" : "—", failed.has("top10"))}
+      ${cell("Traders", n(m.unique_traders), failed.has("traders"))}${cell("Volume / trader", m.volume_per_trader != null ? usd(m.volume_per_trader) : "—", failed.has("wash"))}
+      ${cell("Round-trip wallets", m.round_trip_pct != null ? m.round_trip_pct + "%" : "—", failed.has("wash"))}${cell("Same-size trades", m.size_mode_pct != null ? m.size_mode_pct + "%" : "—", failed.has("wash"))}
+      ${cell("Staircase", m.staircase_score != null ? m.staircase_score : "—", failed.has("chart"))}${cell("Cliff dump", m.cliff_dump == null ? "—" : m.cliff_dump ? "yes" : "no", failed.has("chart") && m.cliff_dump)}
+    </div></div>`;
+}
+
 function statusPill(c) {
   return c.is_real === true ? '<span class="pill real">Real</span>' : c.is_real === false ? '<span class="pill fake">Fake</span>' : '<span class="pill wait">Analyzing</span>';
 }
@@ -554,13 +618,16 @@ function coinRowHtml(c, o = {}) {
   const sub = o.sub || [c.primary_catalyst ? CAT_NICE[c.primary_catalyst] || c.primary_catalyst : "Classifying…",
                         c.holders ? Number(c.holders).toLocaleString() + " holders" : null].filter(Boolean).join(" · ");
   return `<div class="coin-row ${o.sel ? "sel" : ""} ${o.isNew ? "new" : ""}" data-mint="${esc(c.mint)}" tabindex="0" role="option">
-    ${coinImg(c.image, c.symbol)}
+    ${coinImg(c.image, c.symbol, false, c.mint)}
     <div class="cn"><b>${esc(c.name || c.symbol)}${statusPill(c)}</b><span>$${esc(c.symbol)} · ${esc(sub)}</span></div>
     <div class="cv"><b>${usd(c.ath_mcap)}</b><span>now ${usd(c.usd_market_cap)}${c.time_to_100k_min != null ? " · " + mins(c.time_to_100k_min) : ""}</span></div></div>`;
 }
-function coinImg(url, sym, big) {
+function coinImg(url, sym, big, mint) {
   const ini = esc((sym || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?");
-  return url && /^https:\/\//.test(url)
+  // with a mint, the server fetches + caches the picture (own link -> Jupiter -> DexScreener CDN)
+  if (mint && /^[1-9A-HJ-NP-Za-km-z]{32,48}$/.test(mint)) url = "https://local/api/img/" + mint;
+  url = url && url.replace("https://local/api/img/", "/api/img/");
+  return url && /^(https:\/\/|\/api\/img\/)/.test(url)
     ? `<img class="cimg${big ? " big" : ""}" src="${esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;cimg${big ? " big" : ""}&quot;>${ini}</div>'">`
     : `<div class="cimg${big ? " big" : ""}">${ini}</div>`;
 }
@@ -585,13 +652,14 @@ async function openPop(mint, anchor, back) {
   const stat = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
   if (back) POP_ACTIONS.backspace = back.fn;
   pop.innerHTML = `${back ? `<button class="pop-item pop-back" onclick="POP_ACTIONS.backspace()"><span class="ic">←</span>${esc(back.label)}<kbd>⌫</kbd></button><div class="pop-sep"></div>` : ""}
-    <div class="pop-head">${coinImg(c.image, c.symbol, true)}
+    <div class="pop-head">${coinImg(c.image, c.symbol, true, c.mint)}
       <div style="min-width:0"><b>${esc(c.name || c.symbol)}</b><span>$${esc(c.symbol)} · ${esc(CAT_NICE[c.primary_catalyst] || "Classifying…")}</span>${status}</div>
       <button class="pop-x" aria-label="Close" onclick="closePop()">✕</button></div>
     <div class="pop-stats">${stat("ATH", usd(c.ath_mcap))}${stat("Now", usd(c.usd_market_cap))}
       ${stat("To $100k", mins(c.time_to_100k_min))}${stat("Age", ago(c.created_ts))}
       ${stat("Holders", c.holders != null ? Number(c.holders).toLocaleString() : "—")}${stat("Top 10", c.top10_pct != null ? c.top10_pct + "%" : "—")}
       ${stat("Traders", c.unique_traders != null ? Number(c.unique_traders).toLocaleString() : "—")}${stat("Vol 24h", usd(c.volume_24h))}</div>
+    ${fakeBlock(c, true)}
     ${(c.why || c.why_template || []).length ? `<div class="pop-sep"></div><div class="pop-sec">Why it ran</div><ul class="pop-why">${(c.why || c.why_template).map(b => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}
     ${sig ? `<div class="pop-sec">Checks</div><div class="pop-sigs">${sig}</div>` : ""}
     <div class="pop-sep"></div>
@@ -629,9 +697,9 @@ const SOURCE_BLURB = { pumpportal: "Live launches + migrations (websocket)", jup
   helius_holders: "Holder list → holders, top-10 %", kols: "KOL wallet buys", twitter: "X mentions, big accounts",
   pumpfun: "pump.fun API (Cloudflare often blocks it)", pumpfun_details: "pump.fun coin details", kol_research: "KOL LAB wallet history" };
 
-function panelHtml({ dot, title, sub, body }) {
-  return `<div class="pop-head" style="grid-template-columns:${dot ? "28px " : ""}1fr auto">
-      ${dot ? `<span style="width:16px;height:16px;border-radius:50%;background:${dot};box-shadow:0 0 12px ${dot};margin-left:6px"></span>` : ""}
+function panelHtml({ dot, img, title, sub, body }) {
+  return `<div class="pop-head" style="grid-template-columns:${img ? "56px " : dot ? "28px " : ""}1fr auto">
+      ${img || ""}${dot ? `<span style="width:16px;height:16px;border-radius:50%;background:${dot};box-shadow:0 0 12px ${dot};margin-left:6px"></span>` : ""}
       <div style="min-width:0"><b>${title}</b><span>${sub || ""}</span></div>
       <button class="pop-x" aria-label="Close" onclick="closePop()">✕</button></div><div class="pop-sep"></div>${body}`;
 }
@@ -687,7 +755,7 @@ async function agentPop(name, anchor) {
   } else if (name === "FEES") {
     const d = await j(`/api/coins?${tfQ()}&fail=any&limit=40`);
     const fake = d.coins.filter(c => c.fails.some(f => ["fees", "wash", "chart"].includes(f.key))).slice(0, 15);
-    const sub = (c) => c.fails.filter(f => ["fees", "wash", "chart"].includes(f.key)).map(f => f.note).join(" | ");
+    const sub = (c) => c.fake_headline || c.fails.filter(f => ["fees", "wash", "chart"].includes(f.key)).map(f => f.note).join(" | ");
     showPanel(head(`<div class="pop-sec">Flagged as fake / botted · ${TF}</div>${coinList(fake, "Nothing flagged in this timeframe (or the fee/chart samples are still coming in).", sub)}`), anchor, { back });
   } else if (name === "CATALYST") {
     const cats = (STATE.themes.daily.catalysts || []);
@@ -731,6 +799,28 @@ function sourcePop(name, anchor, back) {
       ${s.last_error ? `<div class="pop-sep"></div><div class="pop-sec">Last error</div><div class="pop-why" style="padding-left:12px;word-break:break-word">${esc(s.last_error)}</div>` : ""}
       ${s.note ? `<div class="pop-sec">Note</div><div class="pop-why" style="padding-left:12px">${esc(s.note)}</div>` : ""}` }),
     anchor, { after: (pop) => { const b = pop.querySelector(".pop-back"); if (b && back) { b.onclick = (e) => { e.stopPropagation(); back.fn(); }; POP_ACTIONS.backspace = back.fn; } } });
+}
+
+async function holdingPop(k, h, anchor) {
+  let inDb = false; try { await j("/api/coin/" + encodeURIComponent(h.mint)); inDb = true; } catch { /* not a tracked runner */ }
+  const x = h.multiple, cls = x == null ? "" : x >= 1 ? "pos" : "neg";
+  const back = { label: `Back to ${k.name}'s $${h.symbol}`, fn: () => holdingPop(k, h, anchor) };
+  showPanel(panelHtml({ img: coinImg(h.image, h.symbol, true, h.mint), title: `$${esc(h.symbol)}${h.name ? ` <span style="color:#a9adb6;font-weight:500">${esc(h.name)}</span>` : ""}`,
+    sub: `${esc(k.name)} is holding · ${holdAge(h)}`,
+    body: `<div class="pop-stats"><div><span>Holding for</span><b>${holdAge(h)}</b></div><div><span>Bought in</span><b>${h.invested_sol} SOL</b></div>
+      <div><span>Worth now</span><b>${h.unrealized_sol ?? "—"} SOL</b></div><div><span>Multiple</span><b class="${cls}">${x != null ? x + "x" : "—"}</b></div>
+      <div><span>Entry mcap</span><b>${usd(h.entry_mcap)}</b></div><div><span>Mcap now</span><b>${usd(h.mcap_now)}</b></div></div>
+      <div class="pop-sec">As of the last wallet research (${k.researched_ts ? ago(k.researched_ts) + " ago" : "—"})</div>
+      <div class="pop-sep"></div>
+      ${inDb ? `<button class="pop-item" data-coin><span class="ic">≡</span>Open coin card<kbd>↵</kbd></button>` : ""}
+      <a class="pop-item" href="https://pump.fun/coin/${esc(h.mint)}" target="_blank" rel="noopener noreferrer"><span class="ic">◎</span>Open in pump.fun</a>
+      <a class="pop-item" href="https://dexscreener.com/solana/${esc(h.mint)}" target="_blank" rel="noopener noreferrer"><span class="ic">▦</span>Open in DexScreener</a>
+      <a class="pop-item" href="https://solscan.io/token/${esc(h.mint)}" target="_blank" rel="noopener noreferrer"><span class="ic">⌕</span>Open on Solscan</a>
+      <button class="pop-item" data-kolp><span class="ic">◉</span>Open ${esc(k.name)}'s profile</button>` }),
+    anchor, { after: (pop) => {
+      const c = pop.querySelector("[data-coin]"); if (c) c.onclick = (e) => { e.stopPropagation(); openPop(h.mint, anchor, back); };
+      pop.querySelector("[data-kolp]").onclick = (e) => { e.stopPropagation(); closePop(); zoomTo(k.name); };
+    } });
 }
 
 window.Synapse.onPick((hit, at) => hit.type === "theme" ? themePop(hit.name, at) : agentPop(hit.name, at));

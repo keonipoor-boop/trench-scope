@@ -150,7 +150,7 @@ the dashboard's KOL LAB edits them via `/api/kols`. For each KOL it pulls swaps 
 txs, else a small public-RPC sample; demo mode synthesizes), rebuilds positions, enriches tokens via Jupiter, then
 computes stats -> `archetype()` labels (style + risk) -> `describe()` (Claude if keyed, else template) and
 `side_wallet_insights()` (does a side wallet buy before main?). Profiles are stored in the `kol_profiles` table and
-refreshed every `kol_research.refresh_h` by the scheduler. Add a label: edit `archetype()`. Add a stat: `stats()`
+refreshed every `kol_research.refresh_h` (1h) by the scheduler; open positions become `holdings` (the planet moons). Add a label: edit `archetype()`. Add a stat: `stats()`
 plus a cell in `openKol()` (web/app.js). Profile pictures are served by `/api/pfp/<handle>` (server fetches + caches in the data dir:
 X API photo when `X_BEARER_TOKEN` is set, else unavatar.io; misses retried hourly). UI: a solar system
 (web/app.js `loadKols`/`spaceFrame`/`zoomTo`): KOLs orbit the core on 3 rings, ring colour = style
@@ -160,6 +160,13 @@ X API photo when `X_BEARER_TOKEN` is set, else unavatar.io; misses retried hourl
 The dashboard's TIMEFRAME bar (7D … 1S) passes `?tf=` to `/api/state`. `api/server.py:TIMEFRAMES` lists them;
 runners count by when they crossed the bar (`ts_100k`, else launch), launches by launch time. Add a timeframe
 there and in `TFS` in web/app.js.
+
+### Coin pictures + fake explanations
+- `/api/img/<mint>`: server fetches and caches each coin's picture (its own link, KOL holdings link, Jupiter icon,
+  DexScreener CDN). Only public https URLs are fetched (`_safe_img_url`): coin metadata is attacker-controlled.
+  Frontend: `coinImg(url, sym, big, mint)`; pass the mint so the proxy is used.
+- `core/forensics.explain_fake(coin)` -> `coin["fake"] = {headline, failed, reasons, metrics}` for coins with
+  is_real False; shown by `fakeBlock()` in the coin popover, COIN FILE and the FEES agent list.
 
 ### Clickable Synapse + popovers
 Everything in the Synapse opens a Claude-style popover (`#coinpop`, web/app.js): narrative neurons -> `themePop`,

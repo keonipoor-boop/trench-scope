@@ -27,5 +27,14 @@ print(p["description"])
 print(json.dumps({k: p["stats"].get(k) for k in ("trades", "positions", "closed", "win_rate", "median_size_sol",
                                                   "median_entry_mcap", "median_entry_age_s", "median_hold_s",
                                                   "entry_mcap_mix", "themes", "total_pnl_sol")}, default=str))
+print("HOLDINGS", [(h["symbol"], bool(h.get("image")), h["invested_sol"]) for h in p.get("holdings", [])])
+from api.server import coin_img  # noqa: E402
+for mint in ["8fWsV1u1SYcN358tSA6dyTjfpmaQTziftcHwKBFSpump", "FJKt1LxbWBpTRt9BaDEB6Wr2qL5LZzjFF5sx8rXnpump"] + \
+        [h["mint"] for h in p.get("holdings", [])[:3]]:
+    try:
+        r = coin_img(mint)
+        print("IMG", mint[:8], r.media_type, len(r.body), "bytes")
+    except Exception as e:
+        print("IMG", mint[:8], "FAILED", e)
 for r in p["recent"][:8]:
     print("  ", r["symbol"], r["entry_mcap"], r["invested_sol"], r["multiple"], r["hold_s"])
