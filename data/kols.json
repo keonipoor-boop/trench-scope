@@ -1,13 +1,4 @@
 [
-  {
-    "name": "example_kol_1",
-    "wallet": "",
-    "twitter": "https://x.com/example1",
-    "_note": "Fill in real wallet addresses. Entries with an empty wallet are skipped."
-  },
-  {
-    "name": "example_kol_2",
-    "wallet": "",
-    "twitter": "https://x.com/example2"
-  }
+  {"name": "example_kol_1", "wallet": "", "twitter": "https://x.com/example1", "_note": "Fill in real wallet addresses. Entries with an empty wallet are skipped."},
+  {"name": "example_kol_2", "wallet": "", "twitter": "https://x.com/example2"}
 ]

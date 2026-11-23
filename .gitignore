@@ -8,3 +8,4 @@ data/settings.json
 dist/
 build/
 *.spec
+data/img/
