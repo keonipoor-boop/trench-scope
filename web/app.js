@@ -313,7 +313,12 @@ function openSettings() {
   const d = $("#settings"), f = $("#settings-form");
   if (!SETTINGS) return;
   f.mode.value = SETTINGS.mode;
-  for (const k of Object.keys(SETTINGS.keys)) { $("#k-" + k).textContent = SETTINGS.keys[k] ? "✓ saved" : ""; f[k].value = ""; }
+  for (const k of Object.keys(SETTINGS.keys)) {
+    $("#k-" + k).textContent = SETTINGS.keys[k] ? "✓ saved & in use" : "";
+    f[k].value = "";
+    f[k].dataset.ph = f[k].dataset.ph || f[k].placeholder;
+    f[k].placeholder = SETTINGS.keys[k] ? "•••••••••••• key saved (hidden). Leave blank to keep it" : f[k].dataset.ph;
+  }
   $("#pw-row").hidden = !SETTINGS.needs_password;
   const locked = !SETTINGS.editable && !SETTINGS.needs_password;
   $("#set-msg").textContent = locked ? "This copy is hosted without an ADMIN_PASSWORD, so settings can only be changed from the host's environment variables." : "";
