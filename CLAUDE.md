@@ -163,7 +163,12 @@ Every wallet's swaps are stored in `kol_trades` (sync state in `kol_sync`). With
 new swaps (`forward_pages`) and backfills older ones (`backfill_pages_per_run`, ~3,000 swaps/wallet/hour, following
 Helius' "continue with before=<sig>" replies) until the first swap; then `history.complete` is true and lifetime
 is real lifetime. `pnl_periods()`: realized = sells inside the period vs average cost; unrealized = held bags;
-`pnl_series` = realized PnL per sell. Without Helius the public RPC adds a small sample per run (marked incomplete).
+`pnl_series` = realized PnL bucketed hourly (last 30d) / daily. Without Helius the public RPC adds a small sample per run (marked incomplete).
+`positions()` is a running average-cost ledger (like Axiom/kolscan): each sell realizes proceeds - avg cost x tokens sold;
+token transfers are stored as `xfer_in`/`xfer_out` with a `peer` (own-wallet moves ignored, others leave at cost / arrive free);
+sells whose buys predate the loaded history are counted in `unpriced`, never guessed. The UI headline is REALIZED PnL
+("(SO FAR)" until `history.complete`). Token facts are cached in `tok_info`; prices refresh only for recently traded / held mints.
+Bump `PARSER_VERSION` when parsing changes: every wallet re-syncs once.
 
 ### STRATEGY LIBRARY
 `core/strategy.py`, run at the end of every KOL research. `build_spec()` = entry, exit (`exit_model()`: take-profit

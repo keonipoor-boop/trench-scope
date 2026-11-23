@@ -88,7 +88,7 @@ def _conf():
     return get_config().get("kol_research", {})
 
 
-PARSER_VERSION = 2  # bump when trade parsing changes: stored histories are rebuilt once
+PARSER_VERSION = 3  # bump when trade parsing changes: stored histories are rebuilt once
 
 
 def ensure_trade_tables():
@@ -98,6 +98,10 @@ def ensure_trade_tables():
     db.x("CREATE INDEX IF NOT EXISTS ix_kol_trades_w ON kol_trades(wallet, ts)")
     db.x("""CREATE TABLE IF NOT EXISTS kol_sync (wallet TEXT PRIMARY KEY, oldest_sig TEXT, done INTEGER DEFAULT 0,
             source TEXT, updated_ts INTEGER)""")
+    cols = {r["name"] for r in db.q("PRAGMA table_info(kol_trades)")}
+    if "peer" not in cols:
+        db.x("ALTER TABLE kol_trades ADD COLUMN peer TEXT")
+    db.x("CREATE TABLE IF NOT EXISTS tok_info (mint TEXT PRIMARY KEY, data TEXT, ts INTEGER, price_ts INTEGER)")
     if (db.kv_get("kol_parser_version") or 1) < PARSER_VERSION:  # histories parsed the old way: re-sync from scratch
         db.x("DELETE FROM kol_trades")
         db.x("DELETE FROM kol_sync")
@@ -112,8 +116,8 @@ def _store(wallet: str, trades: list[dict]) -> int:
         for t in trades:
             if not t.get("sig"):
                 continue
-            cur = db.conn.execute("INSERT OR IGNORE INTO kol_trades(wallet,sig,ts,mint,side,tokens,sol,usd) VALUES(?,?,?,?,?,?,?,?)",
-                                  (wallet, t["sig"], t.get("ts"), t["mint"], t["side"], t["tokens"], t["sol"], t["usd"]))
+            cur = db.conn.execute("INSERT OR IGNORE INTO kol_trades(wallet,sig,ts,mint,side,tokens,sol,usd,peer) VALUES(?,?,?,?,?,?,?,?,?)",
+                                  (wallet, t["sig"], t.get("ts"), t["mint"], t["side"], t["tokens"], t["sol"], t["usd"], t.get("peer")))
             n += cur.rowcount
         db.conn.commit()
     return n
@@ -205,7 +209,16 @@ def _parse_enhanced(t: dict, wallet: str) -> dict | None:
                 deltas[tb.get("mint")] += int(raw.get("tokenAmount") or 0) / 10 ** int(raw.get("decimals") or 0)
             except (TypeError, ValueError):
                 continue
-    return _to_trade(deltas, sol, t.get("timestamp"), t.get("signature"))
+    tr = _to_trade(deltas, sol, t.get("timestamp"), t.get("signature"))
+    if tr and tr["side"].startswith("xfer"):  # who the tokens went to / came from (own wallet or not)
+        for x in t.get("tokenTransfers") or []:
+            if x.get("mint") != tr["mint"]:
+                continue
+            if tr["side"] == "xfer_out" and x.get("fromUserAccount") == wallet:
+                tr["peer"] = x.get("toUserAccount")
+            elif tr["side"] == "xfer_in" and x.get("toUserAccount") == wallet:
+                tr["peer"] = x.get("fromUserAccount")
+    return tr
 
 
 def _rpc_trades(wallet: str) -> list[dict]:
@@ -256,9 +269,11 @@ def _to_trade(deltas: dict, sol_change: float, ts, sig) -> dict | None:
     mint, amount = next(iter(tokens.items()))
     sol = sol_change + deltas.get(WSOL, 0)
     usd = deltas.get(USDC, 0) + deltas.get(USDT, 0)
-    # a swap moves SOL (or a stable) the opposite way to the token; fee-only / plain transfers are not trades
+    # no SOL / stable moved: a token transfer (to a side wallet, a CEX, an airdrop...). Kept so the ledger knows
+    # the tokens left (or arrived) without a price, instead of thinking they're still held
     if abs(sol) < 0.0005 and abs(usd) < 0.05:
-        return None
+        return {"mint": mint, "side": "xfer_in" if amount > 0 else "xfer_out", "tokens": abs(amount), "sol": 0.0, "usd": 0.0,
+                "ts": ts, "sig": sig}
     if (amount > 0 and sol > 0.0005) or (amount < 0 and sol < -0.0005 and not usd):
         return None
     side = "buy" if amount > 0 else "sell"
@@ -331,8 +346,10 @@ def fetch_trades(wallet: str) -> tuple[list[dict], str, dict]:
 
 
 # ---------------------------------------------------------------- token info
-def token_info(mints: list[str]) -> tuple[dict, float]:
-    """Jupiter batch lookup -> {mint: info}, SOL price in USD."""
+def token_info(mints: list[str], fresh: set | None = None) -> tuple[dict, float]:
+    """Jupiter lookup -> {mint: info}, SOL price. Coin facts (name, symbol, launch, supply) are cached forever;
+    prices are refreshed only for `fresh` mints (recently traded / still held) - a 20k-coin wallet costs a
+    handful of calls per run instead of hundreds."""
     info, sol_usd = {}, 0.0
     mints = list(dict.fromkeys([WSOL] + mints))
     if get_config().demo:
@@ -344,22 +361,40 @@ def token_info(mints: list[str]) -> tuple[dict, float]:
                                    "holders": c.get("holders"), "ath": c.get("ath_mcap"), "image": c.get("image")}
         return info, 150.0
     from sources.jupiter import _iso
+    ensure_trade_tables()
+    db, now = get_db(), int(time.time())
+    fresh = set(fresh or ()) | {WSOL}
+    cached = {}
+    for i in range(0, len(mints), 500):
+        chunk = mints[i:i + 500]
+        for r in db.q(f"SELECT * FROM tok_info WHERE mint IN ({','.join('?' * len(chunk))})", tuple(chunk)):
+            cached[r["mint"]] = (json.loads(r["data"]), r["price_ts"] or 0)
+    need = [m for m in mints if m not in cached or (m in fresh and now - cached[m][1] > 600)]
     base = get_config().get_path("sources.jupiter.base_url", "https://lite-api.jup.ag")
-    for i in range(0, len(mints), 100):
+    got = {}
+    for i in range(0, len(need), 100):
         try:
-            rows = http.get(f"{base}/tokens/v2/search?query={','.join(mints[i:i + 100])}", rate_key="jupiter", per_min=50)
+            rows = http.get(f"{base}/tokens/v2/search?query={','.join(need[i:i + 100])}", rate_key="jupiter", per_min=50)
         except Exception:
             continue
         for t in rows if isinstance(rows, list) else []:
-            if t.get("id") == WSOL:
-                sol_usd = float(t.get("usdPrice") or 0)
-                continue
-            info[t["id"]] = {"symbol": t.get("symbol"), "name": t.get("name"), "launchpad": t.get("launchpad"),
-                             "created_ts": _iso((t.get("firstPool") or {}).get("createdAt")) or _iso(t.get("createdAt")),
-                             "mcap": t.get("mcap") or 0, "usd_price": float(t.get("usdPrice") or 0),
-                             "supply": float(t.get("circSupply") or t.get("totalSupply") or 1e9),
-                             "holders": t.get("holderCount"), "twitter": t.get("twitter"), "image": t.get("icon")}
-    return info, sol_usd or 150.0
+            got[t["id"]] = {"symbol": t.get("symbol"), "name": t.get("name"), "launchpad": t.get("launchpad"),
+                            "created_ts": _iso((t.get("firstPool") or {}).get("createdAt")) or _iso(t.get("createdAt")),
+                            "mcap": t.get("mcap") or 0, "usd_price": float(t.get("usdPrice") or 0),
+                            "supply": float(t.get("circSupply") or t.get("totalSupply") or 1e9),
+                            "holders": t.get("holderCount"), "twitter": t.get("twitter"), "image": t.get("icon")}
+    with db._lock:
+        for m, d in got.items():
+            db.conn.execute("INSERT INTO tok_info(mint,data,ts,price_ts) VALUES(?,?,?,?) ON CONFLICT(mint) DO UPDATE SET "
+                            "data=excluded.data, ts=excluded.ts, price_ts=excluded.price_ts", (m, json.dumps(d), now, now))
+        db.conn.commit()
+    for m in mints:
+        d = got.get(m) or (cached.get(m) or ({}, 0))[0]
+        if m == WSOL:
+            sol_usd = float(d.get("usd_price") or 0)
+        elif d:
+            info[m] = d
+    return info, sol_usd or float(db.kv_get("sol_usd") or 150)
 
 
 # ---------------------------------------------------------------- analysis
@@ -379,55 +414,85 @@ MCAP_BUCKETS = [(0, 1e4, "<$10k"), (1e4, 5e4, "$10–50k"), (5e4, 2.5e5, "$50–
 AGE_BUCKETS = [(0, 300, "<5m"), (300, 3600, "5–60m"), (3600, 86400, "1–24h"), (86400, 1e12, ">1d")]
 
 
-def positions(trades: list[dict], info: dict, sol_usd: float) -> list[dict]:
+def positions(trades: list[dict], info: dict, sol_usd: float, own: set | None = None, complete: bool = True) -> list[dict]:
+    """Rebuild positions with a running average-cost ledger (how wallet trackers compute realized PnL):
+    buys add cost; each sell realizes proceeds - (average cost so far x tokens sold); transfers to/from the KOL's
+    own wallets are ignored (the pooled ledger already holds both sides); transfers elsewhere leave at cost
+    (no PnL) or arrive at zero cost. Sells with no known cost (bought before the loaded history) are skipped and
+    counted, not guessed."""
+    own = own or set()
     by = defaultdict(list)
     for t in trades:
         by[t["mint"]].append(t)
     now = time.time()
     out = []
+    sol_of = lambda t: t["sol"] if (t.get("sol") or 0) > 1e-6 else ((t.get("usd") or 0) / sol_usd if sol_usd else 0)  # noqa: E731
     for mint, ts in by.items():
         ts.sort(key=lambda t: t.get("ts") or 0)
-        buys = [t for t in ts if t["side"] == "buy"]
-        sells = [t for t in ts if t["side"] == "sell"]
-        if not buys:
-            continue  # sold something bought before our window
-        sol_of = lambda t: t["sol"] if t["sol"] > 1e-6 else (t["usd"] / sol_usd if sol_usd else 0)  # noqa: E731
-        inv = sum(sol_of(t) for t in buys)
-        ret = sum(sol_of(t) for t in sells)
-        bought = sum(t["tokens"] for t in buys)
-        sold = min(bought, sum(t["tokens"] for t in sells))
-        left = max(0.0, bought - sold)
+        qty = cost = 0.0
+        bought_tok = inv = ret = 0.0
+        exits, buys_n, sells_n, first, last_sell = [], 0, 0, None, None
+        unpriced_n, unpriced_sol = 0, 0.0
+        for t in ts:
+            side, tok = t["side"], t.get("tokens") or 0
+            if side.startswith("xfer") and t.get("peer") in own:
+                continue  # between the KOL's own wallets
+            if side == "buy":
+                sol = sol_of(t)
+                qty += tok; cost += sol; bought_tok += tok; inv += sol; buys_n += 1
+                first = first or t
+            elif side == "xfer_in":
+                qty += tok  # received free (airdrop / from a dev / unknown wallet): zero cost
+                first = first or t
+            elif side == "sell":
+                sol = sol_of(t)
+                if qty <= 1e-9:
+                    unpriced_n += 1; unpriced_sol += sol  # bought before the loaded history
+                    continue
+                sold = min(tok, qty)
+                avg = cost / qty
+                basis = avg * sold
+                pnl = sol * (sold / tok if tok else 1) - basis
+                exits.append({"x": round(sol / tok / avg, 3) if tok and avg else None, "frac": round(sold / max(bought_tok, sold), 3),
+                              "t": int(t["ts"] - first["ts"]) if t.get("ts") and first and first.get("ts") else None,
+                              "ts": t.get("ts"), "sol": round(sol, 4), "pnl": round(pnl, 4)})
+                ret += sol; qty -= sold; cost -= basis; sells_n += 1; last_sell = t
+            elif side == "xfer_out":
+                if qty > 1e-9:
+                    sold = min(tok, qty)
+                    cost -= cost / qty * sold  # left the wallet at cost: no PnL
+                    qty -= sold
+        if not first:
+            if unpriced_n:
+                out.append({"mint": mint, "symbol": (info.get(mint) or {}).get("symbol") or mint[:6], "unpriced_only": True,
+                            "unpriced_sells": unpriced_n, "unpriced_sol": round(unpriced_sol, 3), "closed": True,
+                            "exits": [], "invested_sol": 0, "returned_sol": 0, "unrealized_sol": 0, "pnl_sol": 0,
+                            "cost_left_sol": 0, "first_buy_ts": None, "end_ts": None, "themes": [], "buys": 0, "sells": 0})
+            continue
         ti = info.get(mint, {})
-        unreal = left * ti.get("usd_price", 0) / sol_usd if sol_usd else 0
-        closed = left <= bought * 0.05
-        first = buys[0]
-        entry_price_usd = (sol_of(first) * sol_usd / first["tokens"]) if first["tokens"] else 0
+        peak = max(bought_tok, 1e-12)
+        closed = qty <= peak * 0.05
+        unreal = 0.0 if closed else (qty * ti.get("usd_price", 0) / sol_usd if sol_usd else 0)
+        realized = sum(e["pnl"] for e in exits)
+        end = (last_sell or {}).get("ts") if closed else now
+        entry_price_usd = (sol_of(first) * sol_usd / first["tokens"]) if first.get("tokens") and first["side"] == "buy" else 0
         entry_mcap = entry_price_usd * ti.get("supply", 1e9)
         age = (first["ts"] - ti["created_ts"]) if ti.get("created_ts") and first.get("ts") else None
-        end = sells[-1]["ts"] if closed and sells else now
-        pnl = ret + (0 if closed else unreal) - inv
         sym = ti.get("symbol") or mint[:6]
-        # each sell: multiple vs average buy price, share of the bag sold, time since entry (exit strategy)
-        avg_px = inv / bought if bought else 0
-        exits = []
-        for t in sells:
-            if t["tokens"] and avg_px:
-                tok = min(t["tokens"], bought)
-                exits.append({"x": round(sol_of(t) / t["tokens"] / avg_px, 3), "frac": round(min(1, t["tokens"] / bought), 3),
-                              "t": int(t["ts"] - first["ts"]) if t.get("ts") and first.get("ts") else None,
-                              "ts": t.get("ts"), "sol": round(sol_of(t), 4),
-                              "pnl": round(sol_of(t) - tok * avg_px, 4)})  # realized vs average cost
+        cost_left = 0.0 if closed else cost
         out.append({
-            "end_ts": int(end) if end else None, "exits": exits, "cost_left_sol": round(left * avg_px, 4),
+            "end_ts": int(end) if end else None, "exits": exits, "cost_left_sol": round(cost_left, 4),
             "mint": mint, "symbol": sym, "name": ti.get("name"), "launchpad": ti.get("launchpad"),
             "themes": narratives.tag({"name": ti.get("name"), "symbol": sym}),
             "first_buy_ts": first.get("ts"), "invested_sol": round(inv, 3), "returned_sol": round(ret, 3),
-            "unrealized_sol": round(unreal, 3), "pnl_sol": round(pnl, 3),
-            "multiple": round((ret + (0 if closed else unreal)) / inv, 2) if inv else None,
-            "closed": closed, "buys": len(buys), "sells": len(sells),
-            "hold_s": int(end - first["ts"]) if first.get("ts") else None,
+            "unrealized_sol": round(unreal, 3), "realized_sol": round(realized, 3),
+            "pnl_sol": round(realized + (unreal - cost_left), 3),
+            "multiple": round((ret + unreal) / inv, 2) if inv else None,
+            "closed": closed, "buys": buys_n, "sells": sells_n,
+            "hold_s": int(end - first["ts"]) if first.get("ts") and end else None,
             "image": ti.get("image"), "mcap_now": ti.get("mcap") or None,
             "entry_mcap": round(entry_mcap) if entry_mcap else None, "entry_age_s": int(age) if age is not None and age >= 0 else None,
+            "unpriced_sells": unpriced_n, "unpriced_sol": round(unpriced_sol, 3),
         })
     return out
 
@@ -499,7 +564,7 @@ def pnl_periods(pos: list[dict], sol_usd: float, trades: list[dict] | None = Non
                     "trades": len(tr), "volume_sol": round(sum(t["sol"] for t in tr), 2), "bought_sol": round(bought, 2),
                     "positions": len(closed_in) + len(held),
                     "win_rate": round(sum(1 for p in closed_in if p["pnl_sol"] > 0) / len(closed_in) * 100) if closed_in else None,
-                    "roi_pct": round(total / bought * 100) if bought else None,
+                    "roi_pct": round(realized / bought * 100) if bought else None,
                     "best": {"symbol": per_pos[0][1], "pnl_sol": round(per_pos[0][0], 2)} if per_pos and per_pos[0][0] > 0 else None}
     return out
 
@@ -654,20 +719,35 @@ def _research(name: str) -> dict | None:
                 t["wallet"] = w
             per_wallet[w] = {"trades": tr}
             all_trades += tr
-        info, sol_usd = token_info(list({t["mint"] for t in all_trades}))
+        own = set(wallets)
+        complete = bool(covs) and all(c["complete"] for c in covs.values())
+        recent_cut = time.time() - 3 * 86400
+        fresh = {t["mint"] for t in all_trades if (t.get("ts") or 0) >= recent_cut}
+        prev = get_profile(name) or {}
+        fresh |= {h["mint"] for h in prev.get("holdings") or []}
+        info, sol_usd = token_info(list({t["mint"] for t in all_trades}), fresh)
         for w, d in per_wallet.items():
-            d["positions"] = positions(d["trades"], info, sol_usd)
+            d["positions"] = [p for p in positions(d["trades"], info, sol_usd, {w}, complete) if not p.get("unpriced_only")]
             d["stats"] = stats(d["positions"], d["trades"])
-        all_pos = positions(all_trades, info, sol_usd)
+        pos_all = positions(all_trades, info, sol_usd, own, complete)
+        unpriced = {"sells": sum(p.get("unpriced_sells") or 0 for p in pos_all),
+                    "sol": round(sum(p.get("unpriced_sol") or 0 for p in pos_all), 2)}
+        all_pos = [p for p in pos_all if not p.get("unpriced_only")]
         s = stats(all_pos, all_trades)
         style, risk = archetype(s)
         sides = side_wallet_insights(per_wallet, k.get("wallet"))
         text, by = describe(k, s, style, risk, sides)
         recent = sorted(all_pos, key=lambda p: -(p.get("first_buy_ts") or 0))[:15]
         periods = pnl_periods(all_pos, sol_usd, all_trades)
-        # realized PnL events by sell time: the chart for any period is the running sum inside it
-        series = sorted([[e["ts"], e["pnl"], p["symbol"]] for p in all_pos for e in p.get("exits") or []
-                         if e.get("ts") and e.get("pnl") is not None], key=lambda r: r[0])
+        # realized PnL by sell time, bucketed (hourly for the last 30 days, daily before) so a 20k-trade wallet
+        # stays small; the chart for any period is the running sum of buckets inside it
+        buckets = defaultdict(float)
+        for p in all_pos:
+            for e in p.get("exits") or []:
+                if e.get("ts") and e.get("pnl") is not None:
+                    size = 3600 if e["ts"] >= time.time() - 30 * 86400 else 86400
+                    buckets[e["ts"] // size * size] += e["pnl"]
+        series = [[t, round(v, 4), ""] for t, v in sorted(buckets.items())]
         # what they're holding right now (open positions that still have some value): the KOL's moons
         holdings = sorted([p for p in all_pos if not p["closed"] and (p["unrealized_sol"] >= _conf().get("min_holding_sol", 0.01)
                                                                        or not info.get(p["mint"], {}).get("usd_price"))],
@@ -681,6 +761,7 @@ def _research(name: str) -> dict | None:
             "stats": s, "style": style, "risk": risk, "side_insights": sides,
             "description": text, "description_by": by, "data_source": src, "sol_usd": sol_usd,
             "recent": recent, "holdings": holdings, "periods": periods, "pnl_series": series,
+            "unpriced": unpriced,
             "history": {"complete": bool(covs) and all(c["complete"] for c in covs.values()),
                         "swaps": sum(c["swaps"] for c in covs.values()),
                         "since_ts": min([c["since_ts"] for c in covs.values() if c["since_ts"]], default=None),

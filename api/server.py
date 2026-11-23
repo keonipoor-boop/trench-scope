@@ -367,6 +367,7 @@ def kols_list():
                     "pfp": f"/api/pfp/{kol_research.handle_of(k)}" if kol_research.handle_of(k) else None,
                     "summary": {x: s.get(x) for x in ("positions", "win_rate", "median_size_sol", "total_pnl_sol")},
                     "researched_ts": p.get("ts"), "periods": p.get("periods") or {},
+                    "history_complete": (p.get("history") or {}).get("complete"),
                     "holdings": [{x: h.get(x) for x in ("mint", "symbol", "name", "image", "first_buy_ts", "invested_sol",
                                                          "unrealized_sol", "multiple", "entry_mcap", "mcap_now")}
                                  for h in (p.get("holdings") or [])][:8]})

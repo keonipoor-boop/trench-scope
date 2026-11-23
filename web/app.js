@@ -465,7 +465,7 @@ async function loadKols() {
       p.el.title = `${k.name} · ${(k.style || []).join(", ") || k.status}`;
       const per = (k.periods || {})[KPERIOD];
       const pnl = SYS_MODE === "dev" ? `<span style="color:#7ee2a8"> · ${k.devRunners} runner${k.devRunners === 1 ? "" : "s"}</span>`
-        : per ? `<span style="color:${per.pnl_sol >= 0 ? "#7ee2a8" : "#ff9aa9"}"> · ${solFmt(per.pnl_sol)}</span>` : "";
+        : per ? `<span style="color:${(per.realized_sol ?? per.pnl_sol) >= 0 ? "#7ee2a8" : "#ff9aa9"}"> · ${solFmt(per.realized_sol ?? per.pnl_sol)}${KPERIOD === "lifetime" && k.history_complete === false ? "…" : ""}</span>` : "";
       p.el.innerHTML = pfpHtml(k.pfp, k.display || k.name) + `<span class="pl-name">${esc(k.display || k.name)}${pnl}</span>`;
     }
     syncMoons(p, k, host);
@@ -595,14 +595,18 @@ function pnlCard(p) {
     area = `M0 ${Y(0).toFixed(1)} ` + pts.map(q => "L" + X(q[0]).toFixed(1) + " " + Y(q[1]).toFixed(1)).join(" ") + ` L${W} ${Y(0).toFixed(1)} Z`;
     area = `<line x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}" stroke="#ffffff22" stroke-dasharray="3 4"/><path d="${area}" fill="${cum >= 0 ? "#39ff8818" : "#ff4d6d18"}"/>`;
   }
-  const col = per.pnl_sol >= 0 ? "#7ee2a8" : "#ff9aa9";
+  // headline = REALIZED PnL (what wallet trackers like Axiom / kolscan show); unrealized is shown beside it
+  const real = per.realized_sol ?? per.pnl_sol;
+  const col = real >= 0 ? "#7ee2a8" : "#ff9aa9";
+  const soFar = KPERIOD === "lifetime" && p.history && !p.history.complete;
   return `<div class="pnl-card">
-    <div class="pnl-top"><div><span class="pnl-l">PNL · ${lbl}</span><b style="color:${col}">${solFmt(per.pnl_sol)}</b>
-      <span class="pnl-usd">${per.pnl_usd != null ? (per.pnl_usd >= 0 ? "+$" : "-$") + Math.abs(per.pnl_usd).toLocaleString() : ""}${per.roi_pct != null ? ` · ${per.roi_pct >= 0 ? "+" : ""}${per.roi_pct}% ROI` : ""}</span>
-      <span class="pnl-usd">realized ${solFmt(per.realized_sol)} · unrealized ${solFmt(per.unrealized_sol)}</span></div>
+    <div class="pnl-top"><div><span class="pnl-l">REALIZED PNL · ${lbl}${soFar ? " (SO FAR)" : ""}</span><b style="color:${col}">${solFmt(real)}</b>
+      <span class="pnl-usd">${p.sol_usd ? (real >= 0 ? "+$" : "-$") + Math.round(Math.abs(real * p.sol_usd)).toLocaleString() : ""}${per.roi_pct != null ? ` · ${per.roi_pct >= 0 ? "+" : ""}${per.roi_pct}% ROI` : ""}</span>
+      <span class="pnl-usd">unrealized ${solFmt(per.unrealized_sol)} · total ${solFmt(per.pnl_sol)}</span></div>
       <div class="pnl-mini"><div><span>Win rate</span><b>${per.win_rate ?? "—"}${per.win_rate != null ? "%" : ""}</b></div><div><span>Trades</span><b>${per.trades ?? "—"}</b></div>
         <div><span>Volume</span><b>${per.volume_sol ?? "—"} SOL</b></div><div><span>Best</span><b>${per.best ? "$" + esc(per.best.symbol) + " " + solFmt(per.best.pnl_sol) : "—"}</b></div></div></div>
     ${historyLine(p.history)}
+    ${p.unpriced && p.unpriced.sells && !(p.history || {}).complete ? `<div class="pnl-hist">${p.unpriced.sells.toLocaleString()} sells (${p.unpriced.sol} SOL) aren't counted yet: their buys are older than the loaded history</div>` : ""}
     ${path ? `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="pnl-svg">${area}<path d="${path}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`
       : `<div class="dim" style="padding:8px 0">${per.positions ? "not enough closed trades to chart" : "no trades in this period"}</div>`}
   </div>`;
