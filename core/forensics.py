@@ -160,8 +160,9 @@ def explain_fake(c: dict) -> dict:
             if c.get("fee_paying_volume_pct") is not None:
                 from signals.fees import total_fees_sol
                 tot = total_fees_sol(c)
-                lead = (f"Traders paid only ≈{tot:.1f} SOL in fees in total for a {_usd(c.get('ath_mcap'))} peak "
-                        f"({tot / max((c.get('ath_mcap') or 1) / 100_000, 1e-9):.1f} SOL per $100k; real runners pay 6+). ") if tot is not None else ""
+                mc = c.get("usd_market_cap") or c.get("ath_mcap") or 1
+                lead = (f"Traders paid only ≈{tot:.1f} SOL in fees in total against {_usd(vol)} of volume and a {_usd(mc)} market cap "
+                        f"({tot / max(mc / 100_000, 1e-9):.1f} SOL per $100k of market cap; real coins pay 6+). ") if tot is not None else ""
                 reasons.append(lead + f"Only {c['fee_paying_volume_pct']:.0f}% of its meaningful volume paid real fees, and fees were just "
                                f"{c.get('fee_volume_pct') or 0:.2f}% of volume. Real buyers trading through terminals pay ~0.5-1%; "
                                "bots that paint charts call the program directly and pay almost nothing.")

@@ -88,6 +88,9 @@ def _conf():
     return get_config().get("kol_research", {})
 
 
+PARSER_VERSION = 2  # bump when trade parsing changes: stored histories are rebuilt once
+
+
 def ensure_trade_tables():
     db = get_db()
     db.x("""CREATE TABLE IF NOT EXISTS kol_trades (wallet TEXT, sig TEXT, ts INTEGER, mint TEXT, side TEXT, tokens REAL,
@@ -95,6 +98,11 @@ def ensure_trade_tables():
     db.x("CREATE INDEX IF NOT EXISTS ix_kol_trades_w ON kol_trades(wallet, ts)")
     db.x("""CREATE TABLE IF NOT EXISTS kol_sync (wallet TEXT PRIMARY KEY, oldest_sig TEXT, done INTEGER DEFAULT 0,
             source TEXT, updated_ts INTEGER)""")
+    if (db.kv_get("kol_parser_version") or 1) < PARSER_VERSION:  # histories parsed the old way: re-sync from scratch
+        db.x("DELETE FROM kol_trades")
+        db.x("DELETE FROM kol_sync")
+        db.kv_set("kol_parser_version", PARSER_VERSION)
+        log("KOLS", "trade parser upgraded: re-syncing every wallet's full history")
 
 
 def _store(wallet: str, trades: list[dict]) -> int:
@@ -134,7 +142,8 @@ def _helius_page(wallet: str, before: str | None) -> tuple[list[dict], str | Non
     """One page of swaps. Returns (txs, next_before, exhausted). Helius answers 'continue from <sig>' when
     a stretch of history has no swaps; we follow it."""
     from sources.helius import api_url
-    q = f"/addresses/{wallet}/transactions?type=SWAP&limit=100" + (f"&before={before}" if before else "")
+    # no type filter: Helius doesn't label many bot-routed trades (Axiom, Photon, BullX...) as SWAP
+    q = f"/addresses/{wallet}/transactions?limit=100" + (f"&before={before}" if before else "")
     try:
         txs = http.get(api_url(q), rate_key="helius_kol", per_min=120, retries=2)
     except http.HTTPError as e:
@@ -178,16 +187,24 @@ def _helius_sync(wallet: str) -> None:
 
 
 def _parse_enhanced(t: dict, wallet: str) -> dict | None:
+    """A trade = the wallet's NET balance changes in one transaction, whatever program or bot routed it
+    (Axiom, Photon, BullX, Jupiter, pump.fun, PumpSwap...). Net token changes come from tokenBalanceChanges of
+    the wallet's own token accounts, so wrapping/unwrapping SOL nets out instead of being counted twice."""
     if t.get("transactionError"):
         return None
     deltas = defaultdict(float)
-    for tt in t.get("tokenTransfers") or []:
-        amt = float(tt.get("tokenAmount") or 0)
-        if tt.get("toUserAccount") == wallet:
-            deltas[tt.get("mint")] += amt
-        if tt.get("fromUserAccount") == wallet:
-            deltas[tt.get("mint")] -= amt
-    sol = next((a.get("nativeBalanceChange") or 0 for a in t.get("accountData") or [] if a.get("account") == wallet), 0) / LAMPORTS
+    sol = 0.0
+    for a in t.get("accountData") or []:
+        if a.get("account") == wallet:
+            sol += (a.get("nativeBalanceChange") or 0) / LAMPORTS
+        for tb in a.get("tokenBalanceChanges") or []:
+            if tb.get("userAccount") != wallet:
+                continue
+            raw = tb.get("rawTokenAmount") or {}
+            try:
+                deltas[tb.get("mint")] += int(raw.get("tokenAmount") or 0) / 10 ** int(raw.get("decimals") or 0)
+            except (TypeError, ValueError):
+                continue
     return _to_trade(deltas, sol, t.get("timestamp"), t.get("signature"))
 
 
@@ -239,6 +256,11 @@ def _to_trade(deltas: dict, sol_change: float, ts, sig) -> dict | None:
     mint, amount = next(iter(tokens.items()))
     sol = sol_change + deltas.get(WSOL, 0)
     usd = deltas.get(USDC, 0) + deltas.get(USDT, 0)
+    # a swap moves SOL (or a stable) the opposite way to the token; fee-only / plain transfers are not trades
+    if abs(sol) < 0.0005 and abs(usd) < 0.05:
+        return None
+    if (amount > 0 and sol > 0.0005) or (amount < 0 and sol < -0.0005 and not usd):
+        return None
     side = "buy" if amount > 0 else "sell"
     return {"mint": mint, "side": side, "tokens": abs(amount), "sol": abs(sol), "usd": abs(usd), "ts": ts, "sig": sig}
 

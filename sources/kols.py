@@ -39,7 +39,7 @@ class KolTracker(Source):
         mp: dict[str, list[dict]] = defaultdict(list)
         for k in self.kols():
             try:
-                txs = self.http_get(api_url(f"/addresses/{k['wallet']}/transactions?type=SWAP&limit={self.conf.get('tx_limit', 100)}"))
+                txs = self.http_get(api_url(f"/addresses/{k['wallet']}/transactions?limit={self.conf.get('tx_limit', 100)}"))
             except Exception as e:
                 log("KOLS", f"{k['name']}: {e}", "warn")
                 continue

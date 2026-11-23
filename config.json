@@ -28,7 +28,7 @@
   "signals": {
     "holders":   {"enabled": true, "required": true,  "min": 300},
     "top10":     {"enabled": true, "required": true,  "max_pct": 35},
-    "fees":      {"enabled": true, "required": true, "min_trade_sol": 0.1, "min_sol_per_100k_ath": 6,
+    "fees":      {"enabled": true, "required": true, "min_trade_sol": 0.1, "min_sol_per_100k_mcap": 6,
                   "min_fee_paying_volume_pct": 40, "min_fee_volume_pct": 0.3, "min_organic_score": 25},
     "kols":      {"enabled": true, "required": false, "min": 1},
     "traders":   {"enabled": true, "required": true,  "min": 150},

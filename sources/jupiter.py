@@ -45,7 +45,7 @@ def jup_to_coin(t: dict) -> dict | None:
         "unique_traders": s24.get("numTraders"),
         "organic_score": round(t["organicScore"], 1) if t.get("organicScore") is not None else None,
         "organic_volume_pct": round(org / vol * 100, 2) if vol else None,
-        "dev_wallet": t.get("dev"), "dev_launches": audit.get("devMints"),
+        "dev_wallet": t.get("dev"), "dev_launches": audit.get("devMints"), "dev_migrations": audit.get("devMigrations"),
         "volume_24h_jup": vol or None,
     }
     return {k: v for k, v in c.items() if v is not None}

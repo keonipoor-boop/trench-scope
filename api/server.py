@@ -374,6 +374,21 @@ def kols_list():
 
 
 _HANDLE = _re.compile(r"^[A-Za-z0-9_]{1,15}$")
+@app.get("/api/devs")
+def devs_list(limit: int = 24):
+    from core import devs
+    return devs.devs_list(limit)
+
+
+@app.get("/api/devs/{wallet}")
+def dev_detail(wallet: str):
+    from core import devs
+    d = devs.dev_detail(wallet)
+    if not d:
+        raise HTTPException(404, "unknown dev")
+    return d
+
+
 @app.get("/api/strategies")
 def strategies_list():
     from core import strategy, kol_research

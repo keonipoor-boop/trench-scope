@@ -558,3 +558,4 @@ dialog h3 { margin: 0 0 12px; letter-spacing: .12em; font-size: 13px; color: var
 #rotation .rot-row:hover { box-shadow: none; background: #ffffff0d; border-color: transparent; }
 #rotation .rot-name span { font-size: 10.5px; }
 #rotation .trend { min-width: 0; font-size: 10.5px; }
+.kperiod[hidden] { display: none; }

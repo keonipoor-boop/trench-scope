@@ -178,8 +178,15 @@ STRATEGY LIBRARY tab (`loadLibrary`/`openCodex` in app.js).
 - THE TAPE has REAL (default) / FAKE / ANALYZING / ALL tabs: `/api/state?tape_filter=`; counts in `tape_counts`.
 - REAL requires every required check to be measured AND passed; missing data = Analyzing (is_real NULL), never Real.
   FEES estimates total fees like Axiom's F (`signals/fees.total_fees_sol`: sampled fee rate x volume, SOL price from
-  Jupiter -> kv `sol_usd`) and needs `min_sol_per_100k_ath` (6) SOL per $100k of ATH.
+  Jupiter -> kv `sol_usd`); it must be >= `min_fee_volume_pct` of volume and >= `min_sol_per_100k_mcap` (6) SOL per
+  $100k of CURRENT market cap (not ATH: a coin dumping from its peak keeps the fees it earned, so it reads better).
 - NARRATIVE ROTATION is a board (`renderRotation`): share bar, Leading/Improving/Weakening/Lagging, heating/cooling.
+
+### DEV SYSTEM
+`core/devs.py` (`/api/devs`, `/api/devs/<wallet>`): groups coins by creator (`dev_wallet` from Jupiter, `creator`
+from PumpPortal / pump.fun) for every dev behind a runner; Jupiter adds total launches + graduations. Labels in
+`labels()` (Hit maker, Fake factory, Clean runners, Serial launcher, One-hit, Migrator, New dev). The KOL LAB's
+DEV SYSTEM tab reuses the solar engine with `SYS_MODE = "dev"` (planets = devs, moons = their runners, `openDev`).
 
 ### Timeframes
 The dashboard's TIMEFRAME bar (7D … 1H; 1H is the shortest) passes `?tf=` to `/api/state`. `api/server.py:TIMEFRAMES` lists them;

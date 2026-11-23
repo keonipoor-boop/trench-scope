@@ -21,11 +21,13 @@ class Fees(Signal):
     def evaluate(self, coin):
         c = self.conf
         share, fvp = coin.get("fee_paying_volume_pct"), coin.get("fee_volume_pct")
-        ath = coin.get("ath_mcap") or 0
+        # fees vs CURRENT market cap (not ATH): a coin dumping from its peak has a smaller mcap and volume while the
+        # fees already paid stay, so it looks better, not worse; a fake keeps a big mcap with tiny fees
+        mcap = coin.get("usd_market_cap") or coin.get("ath_mcap") or 0
         total = total_fees_sol(coin)
-        per = total / (ath / 100_000) if total is not None and ath else None
-        need_per = c.get("min_sol_per_100k_ath", 6)
-        per100k = f", ≈{total:.1f} SOL total fees = {per:.1f} SOL per $100k ATH (min {need_per})" if per is not None else ""
+        per = total / (mcap / 100_000) if total is not None and mcap else None
+        need_per = c.get("min_sol_per_100k_mcap", 6)
+        per100k = f", ≈{total:.1f} SOL total fees = {per:.1f} SOL per $100k of market cap (min {need_per})" if per is not None else ""
         if share is not None:
             need_share, need_fvp = c.get("min_fee_paying_volume_pct", 40), c.get("min_fee_volume_pct", 0.3)
             ok = share >= need_share and (fvp is None or fvp >= need_fvp) and (per is None or per >= need_per)

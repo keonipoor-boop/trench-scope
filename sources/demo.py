@@ -171,6 +171,25 @@ def coin_at(seed, bucket, i, now) -> dict:
     return dict(t, ath_now=ath, ts_100k=ts_100k, mcap=mcap)
 
 
+def _wallet(seed):
+    r = _rng("dev", seed)
+    return "".join(r.choice(B58) for _ in range(44))
+
+
+DEV_POOL = [_wallet(i) for i in range(60)]
+
+
+def demo_dev(t: dict) -> dict:
+    """A deterministic fake creator: a few prolific devs, some 'hit makers' whose coins run more often."""
+    r = _rng("devpick", t["mint"])
+    i = min(59, int(r.expovariate(1 / 18)))
+    if t["runner"] and r.random() < 0.12:
+        i = r.choice([0, 1, 2, 3, 5, 8])  # hit makers
+    rr = _rng("devstats", i)
+    launches = int(rr.uniform(3, 400) if i % 4 else rr.uniform(2, 40))
+    return {"dev_wallet": DEV_POOL[i], "dev_launches": launches, "dev_migrations": int(launches * rr.uniform(0.01, 0.25))}
+
+
 class DemoScout(_DemoBase):
     name = "demo"
     agent = "SCOUT"
@@ -192,7 +211,7 @@ class DemoScout(_DemoBase):
                     out.append({"mint": t["mint"], "name": t["name"], "symbol": t["symbol"],
                                 "description": t["description"], "created_ts": t["created_ts"],
                                 "twitter": t["twitter"], "website": t["website"],
-                                "demo_ref": [b, i], "demo": True})
+                                "demo_ref": [b, i], "demo": True, **demo_dev(t)})
         source_result("pump.fun (demo)", "SCOUT", True, latency_ms=_rng(now).uniform(80, 260))
         return out
 

@@ -391,7 +391,7 @@ function renderKPeriodBar() {
 }
 const dur = (s) => s == null ? "—" : s >= 86400 ? (s / 86400).toFixed(1) + "d" : s >= 3600 ? (s / 3600).toFixed(1) + "h" : s >= 60 ? Math.round(s / 60) + "m" : Math.round(s) + "s";
 const initials = (n) => esc((n || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?");
-const pfpHtml = (url, name, big) => url && /^(https:\/\/|\/api\/pfp\/)/.test(url)
+const pfpHtml = (url, name, big) => url && /^(https:\/\/|\/api\/(pfp|img)\/)/.test(url)
   ? `<img class="pfp${big ? " big" : ""}" src="${esc(url)}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;pfp${big ? " big" : ""}&quot;>${initials(name)}</div>'">`
   : `<div class="pfp${big ? " big" : ""}">${initials(name)}</div>`;
 const GOOD_RISK = ["Cuts losers fast", "Scales out", "Consistent sizing", "High win rate"];
@@ -408,10 +408,36 @@ let ZOOMED = null, spaceT0 = performance.now(), HOVER = false, pausedAt = null;
 
 function planetSize(k) { const n = k.summary.positions || 0; return Math.round(46 + Math.min(34, Math.sqrt(n) * 4)); }
 
+// the same solar system shows KOLs or devs (devs populate themselves from runners' creators)
+let SYS_MODE = "kol";
+const DEV_COLORS = [["Hit maker", "#39ff88"], ["Fake factory", "#ff4d6d"], ["Clean runners", "#22e6ff"], ["Serial launcher", "#ff8a3d"],
+  ["One-hit", "#a26bff"], ["Migrator", "#ffd23d"], ["New dev", "#f2f7ff"]];
+function devToPlanet(d) {
+  return { name: d.wallet, display: d.name, wallet: d.wallet, status: "done", style: d.labels,
+    pfp: d.best ? "/api/img/" + d.best.mint : null, summary: { positions: d.runners * 4, win_rate: null },
+    devRunners: d.runners, devReal: d.real, devFake: d.fake,
+    holdings: (d.moons || []).slice(0, 5).map(m => ({ ...m, invested_sol: null, multiple: null, unrealized_sol: null })) };
+}
+function setSysMode(mode) {
+  if (mode === SYS_MODE) return;
+  SYS_MODE = mode; zoomOut();
+  for (const p of PLANETS.values()) for (const el of [p.el, ...(p.moons || []).map(m => m.el)]) el.parentNode && el.parentNode.removeChild(el);
+  PLANETS.clear();
+  $("#kolsun").querySelector("b").textContent = mode === "dev" ? "DEV" : "KOL";
+  $("#kolsun").querySelector("i").textContent = mode === "dev" ? "auto" : "+ add";
+  if ($("#kperiod")) $("#kperiod").hidden = mode === "dev";
+  loadKols();
+}
+
 async function loadKols() {
-  try { KOLS = await j("/api/kols"); } catch { return; }
-  $("#kolcount").textContent = `${KOLS.length} tracked`;
+  if (SYS_MODE === "dev") {
+    try { KOLS = (await j("/api/devs?limit=14")).map(devToPlanet); } catch { return; }
+  } else {
+    try { KOLS = await j("/api/kols"); } catch { return; }
+  }
+  $("#kolcount").textContent = SYS_MODE === "dev" ? `${KOLS.length} devs` : `${KOLS.length} tracked`;
   if (!$("#kperiod")) renderKPeriodBar();
+  if ($("#kperiod")) $("#kperiod").hidden = SYS_MODE === "dev";
   const host = $("#kolplanets"), names = new Set(KOLS.map(k => k.name));
   for (const [n, p] of PLANETS) if (!names.has(n)) {
     for (const el of [p.el, ...(p.moons || []).map(m => m.el)]) el.parentNode && el.parentNode.removeChild(el);
@@ -433,17 +459,22 @@ async function loadKols() {
     if (p.sig !== sig) {
       p.sig = sig;
       p.el.style.width = p.el.style.height = p.size + "px";
-      p.el.style.setProperty("--pc", k.status === "running" ? "#22e6ff" : styleColor(k.style));
+      p.el.style.setProperty("--pc", k.status === "running" ? "#22e6ff" : SYS_MODE === "dev"
+        ? ((DEV_COLORS.find(([l]) => (k.style || []).includes(l)) || [0, "#c8d6e2"])[1]) : styleColor(k.style));
       p.el.classList.toggle("running", k.status === "running" || k.status === "new");
       p.el.title = `${k.name} · ${(k.style || []).join(", ") || k.status}`;
       const per = (k.periods || {})[KPERIOD];
-      const pnl = per ? `<span style="color:${per.pnl_sol >= 0 ? "#7ee2a8" : "#ff9aa9"}"> · ${solFmt(per.pnl_sol)}</span>` : "";
-      p.el.innerHTML = pfpHtml(k.pfp, k.name) + `<span class="pl-name">${esc(k.name)}${pnl}</span>`;
+      const pnl = SYS_MODE === "dev" ? `<span style="color:#7ee2a8"> · ${k.devRunners} runner${k.devRunners === 1 ? "" : "s"}</span>`
+        : per ? `<span style="color:${per.pnl_sol >= 0 ? "#7ee2a8" : "#ff9aa9"}"> · ${solFmt(per.pnl_sol)}</span>` : "";
+      p.el.innerHTML = pfpHtml(k.pfp, k.display || k.name) + `<span class="pl-name">${esc(k.display || k.name)}${pnl}</span>`;
     }
     syncMoons(p, k, host);
   });
-  $("#kollegend").innerHTML = STYLE_COLORS.map(([k, c]) => `<span style="--c:${c}">${k === "hunter" ? "Narrative hunter" : k}</span>`).join("") +
-    (KOLS.length ? "" : '<span style="--c:#ff3df2">click the core to add your first KOL</span>');
+  $("#kollegend").innerHTML = SYS_MODE === "dev"
+    ? DEV_COLORS.map(([k, c]) => `<span style="--c:${c}">${k}</span>`).join("") + '<span style="--c:#5d7183">moons = their runners · found automatically</span>'
+      + (KOLS.length ? "" : '<span style="--c:#ff3df2">devs appear as their coins run</span>')
+    : STYLE_COLORS.map(([k, c]) => `<span style="--c:${c}">${k === "hunter" ? "Narrative hunter" : k}</span>`).join("") +
+      (KOLS.length ? "" : '<span style="--c:#ff3df2">click the core to add your first KOL</span>');
   if (ZOOMED && !PLANETS.has(ZOOMED)) zoomOut();
   if (ZOOMED && $("#koldetail").dataset.status === "running" && KOLS.find(k => k.name === ZOOMED)?.status !== "running") openKol(ZOOMED);
 }
@@ -458,7 +489,7 @@ function syncMoons(p, k, host) {
       const el = document.createElement("div");
       el.className = "kol-moon"; el.dataset.planet = k.name;
       el.innerHTML = coinImg(h.image, h.symbol, false, h.mint) + `<span class="mn-age"></span>`;
-      el.onclick = (e) => { e.stopPropagation(); holdingPop(k, h, el); };
+      el.onclick = (e) => { e.stopPropagation(); SYS_MODE === "dev" ? openPop(h.mint, el) : holdingPop(k, h, el); };
       el.onmouseenter = () => { HOVER = true; }; el.onmouseleave = () => { HOVER = false; };
       host.appendChild(el);
       return { el, h, phase: (i / Math.max(1, hs.length)) * Math.PI * 2 };
@@ -468,7 +499,8 @@ function syncMoons(p, k, host) {
   for (const m of p.moons || []) {  // refresh the ticking hold age + tooltip
     const h = m.h, x = h.multiple != null ? ` · ${h.multiple}x` : "";
     m.el.querySelector(".mn-age").textContent = holdAge(h);
-    m.el.title = `$${h.symbol} · holding ${holdAge(h)} · ${h.invested_sol} SOL in${x}`;
+    m.el.title = SYS_MODE === "dev" ? `$${h.symbol} · launched ${holdAge(h)} ago · peak ${usd(h.ath)}`
+      : `$${h.symbol} · holding ${holdAge(h)} · ${h.invested_sol} SOL in${x}`;
   }
 }
 setInterval(() => { for (const p of PLANETS.values()) for (const m of p.moons || []) m.el.querySelector(".mn-age").textContent = holdAge(m.h); }, 15000);
@@ -519,8 +551,8 @@ function zoomTo(name) {
   const tx = (narrow ? W / 2 : W * 0.18) - cx * z, ty = (narrow ? H * 0.16 : H / 2) - cy * z;
   $("#kolspace").style.transform = `translate(${tx}px, ${ty}px) scale(${z})`;
   st.classList.add("zoomed");
-  const pre = cj("/api/kols/" + encodeURIComponent(name), 5000);  // fetch while the camera moves
-  setTimeout(() => { $("#koldetail").hidden = false; openKol(name, pre); }, 220);
+  const pre = cj((SYS_MODE === "dev" ? "/api/devs/" : "/api/kols/") + encodeURIComponent(name), 5000);  // fetch while the camera moves
+  setTimeout(() => { $("#koldetail").hidden = false; (SYS_MODE === "dev" ? openDev : openKol)(name, pre); }, 220);
 }
 
 function zoomOut() {
@@ -535,7 +567,7 @@ function zoomOut() {
 $("#kd-close").onclick = zoomOut;
 $("#kolstage").addEventListener("click", (e) => { if (ZOOMED && e.target.closest(".kol-space") && !e.target.closest(".kol-planet")) zoomOut(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && ZOOMED && !document.querySelector("dialog[open]")) zoomOut(); });
-$("#kolsun").onclick = (e) => { e.stopPropagation(); openKolForm(null); };
+$("#kolsun").onclick = (e) => { e.stopPropagation(); if (SYS_MODE === "kol") openKolForm(null); };
 requestAnimationFrame(spaceFrame);
 
 function historyLine(h) {
@@ -741,8 +773,40 @@ document.querySelectorAll("#kollab .kl-tabs button").forEach(b => b.onclick = ()
   const lib = b.dataset.tab === "library";
   document.querySelectorAll("#kollab .kl-tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
   $("#kolstage").hidden = lib; $("#libstage").hidden = !lib;
-  if (lib) loadLibrary();
+  $("#btn-addkol").hidden = b.dataset.tab === "devs";
+  if (lib) loadLibrary(); else setSysMode(b.dataset.tab === "devs" ? "dev" : "kol");
 });
+
+async function openDev(wallet, pre) {
+  KOL_SEL = wallet;
+  $("#koldetail-body").innerHTML = `<div class="empty"><span class="spin">◌</span> studying dev ${esc(wallet.slice(0, 4))}…${esc(wallet.slice(-4))}…</div>`;
+  let d; try { d = await (pre || j("/api/devs/" + encodeURIComponent(wallet))); } catch {
+    $("#koldetail-body").innerHTML = '<div class="empty">couldn\'t load this dev, try again in a moment</div>'; return; }
+  if (KOL_SEL !== wallet) return;
+  const cell = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+  $("#koldetail").dataset.status = "done";
+  $("#koldetail-body").innerHTML = `<div class="kd-top">${coinImg(d.best?.image, d.best?.symbol || d.name, true, d.best?.mint).replace('class="cimg big"', 'class="cimg big" style="width:84px;height:84px;border-radius:50%"')}
+      <div style="min-width:0"><div class="kd-name">DEV ${esc(d.name)}</div>
+        <a class="dim" href="https://solscan.io/account/${esc(d.wallet)}" target="_blank" rel="noopener noreferrer">${esc(d.wallet.slice(0, 10))}… on Solscan ↗</a>
+        <div class="tags" style="margin-top:6px">${(d.labels || []).map(l => `<span class="tag ${["Fake factory", "Serial launcher"].includes(l) ? "bad" : ["Hit maker", "Clean runners"].includes(l) ? "good" : "s"}">${esc(l)}</span>`).join("")}</div></div>
+      <div class="kd-actions"><button id="dev-copy">COPY WALLET</button></div></div>
+    <div class="kd-desc" style="margin-top:12px">${esc(d.description)}</div>
+    <div class="sec"><span>TRACK RECORD</span><span>launch + graduation counts from Jupiter; runners from what Trench Scope has seen</span></div>
+    <div class="grid4">${cell("LAUNCHES", d.launches)}${cell("GRADUATED", d.migrations != null ? `${d.migrations} (${d.migration_rate}%)` : "—")}
+      ${cell("RUNNERS SEEN", d.runners)}${cell("RUNNER RATE", d.runner_rate != null ? d.runner_rate + "%" : "—")}
+      ${cell("REAL", d.real)}${cell("FLAGGED FAKE", d.fake)}${cell("BEST PEAK", usd(d.best?.ath))}${cell("AVG PEAK", usd(d.avg_ath))}
+      ${cell("LAST LAUNCH", d.last_launch_ts ? ago(d.last_launch_ts) + " ago" : "—")}${cell("THEMES", (d.themes || []).join(", ") || "—")}
+      ${cell("CATALYSTS", (d.catalysts || []).map(c => CAT_NICE[c] || c).join(", ") || "—")}${cell("COINS SEEN", d.coins_seen)}</div>
+    <div class="sec"><span>THEIR RUNNERS</span><span>${d.runner_coins.length}</span></div>
+    <div class="clean">${d.runner_coins.map(c => coinRowHtml(c)).join("") || '<div class="dim">none yet</div>'}</div>
+    ${d.other_coins.length ? `<div class="sec"><span>OTHER LAUNCHES WE'VE SEEN</span><span>${d.other_coins.length}</span></div>
+      <div class="clean">${d.other_coins.map(c => coinRowHtml(c, { sub: "launched " + ago(c.created_ts) + " ago" })).join("")}</div>` : ""}`;
+  $("#dev-copy").onclick = async () => { try { await navigator.clipboard.writeText(d.wallet); $("#dev-copy").textContent = "COPIED"; } catch { prompt("Dev wallet:", d.wallet); } };
+  document.querySelectorAll("#koldetail-body .coin-row").forEach(el => {
+    el.onmouseenter = () => prefetchCoin(el.dataset.mint);
+    el.onclick = (e) => { e.stopPropagation(); openPop(el.dataset.mint, el); };
+  });
+}
 
 async function loadLibrary() {
   try { LIB = await j("/api/strategies"); } catch { return; }
