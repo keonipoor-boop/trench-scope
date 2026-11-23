@@ -86,6 +86,22 @@ def exit_model(pos: list[dict]) -> dict:
     }
 
 
+EX_FIELDS = ("mint", "symbol", "name", "image", "entry_mcap", "entry_age_s", "invested_sol", "multiple", "pnl_sol",
+             "hold_s", "first_buy_ts", "closed", "themes")
+
+
+def examples(pos: list[dict], entry: dict) -> dict:
+    """Real coins behind the playbook: recent buys that fit their usual entry, their best and worst trades."""
+    pick = lambda p: {k: p.get(k) for k in EX_FIELDS}  # noqa: E731
+    lo, hi = entry.get("mcap_low"), entry.get("mcap_high")
+    fits = [p for p in pos if p.get("entry_mcap") and lo and hi and lo <= p["entry_mcap"] <= hi]
+    fits.sort(key=lambda p: -(p.get("first_buy_ts") or 0))
+    closed = [p for p in pos if p["closed"] and p.get("pnl_sol") is not None]
+    best = sorted([p for p in closed if p["pnl_sol"] > 0], key=lambda p: -p["pnl_sol"])[:4]
+    worst = sorted([p for p in closed if p["pnl_sol"] < 0], key=lambda p: p["pnl_sol"])[:3]
+    return {"typical": [pick(p) for p in fits[:6]], "best": [pick(p) for p in best], "worst": [pick(p) for p in worst]}
+
+
 def build_spec(k: dict, pos: list[dict], s: dict, style: list[str], risk: list[str]) -> dict:
     mc = [p["entry_mcap"] for p in pos if p.get("entry_mcap")]
     age = [p["entry_age_s"] for p in pos if p.get("entry_age_s") is not None]
@@ -129,7 +145,8 @@ def build_spec(k: dict, pos: list[dict], s: dict, style: list[str], risk: list[s
     return {"title": title, "style": style, "risk_labels": risk, "entry": entry, "exit": ex,
             "risk": {"size_cv": s.get("size_cv"), "trades_per_day": s.get("trades_per_day"), "bag_hold_pct": s.get("bag_hold_pct"),
                      "win_rate": s.get("win_rate"), "avg_win_x": s.get("avg_win_x"), "median_loss_pct": s.get("median_loss_pct")},
-            "rules": rules, "confidence": conf, "sample": {"positions": len(pos), "closed": closed}}
+            "rules": rules, "confidence": conf, "sample": {"positions": len(pos), "closed": closed},
+            "examples": examples(pos, entry)}
 
 
 # what counts as a meaningful change between versions

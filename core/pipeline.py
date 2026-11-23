@@ -172,6 +172,18 @@ def scan(backfill_days: float | None = None) -> dict:
         derive(c, thr)
     runners = {m: c for m, c in window.items() if c["is_runner"]}
     stats["runners"] = len(runners)
+    from core.forensics import FORENSICS_VERSION
+    if (db.kv_get("forensics_version") or 1) < FORENSICS_VERSION:
+        # measurement changed: old fee verdicts can't be trusted. Drop them (-> ANALYZING, never REAL) and re-sample
+        stale = ("fee_volume_pct", "fee_paying_volume_pct", "fees_sol", "sample_fees_sol", "sample_volume_sol", "sample_txs",
+                 "sample_big_trades", "deep_ts", "is_real", "signals", "fake")
+        for c in runners.values():
+            for k in stale:
+                c.pop(k, None)
+            db.upsert_coin(c, merge=False, commit=False)
+        db.conn.commit()
+        db.kv_set("forensics_version", FORENSICS_VERSION)
+        log("FEES", f"fee checks upgraded: re-checking all {len(runners)} runners (REAL waits for the new sample)")
     due = sorted([c for c in runners.values() if (c.get("deep_ts") or 0) < now - 60 * pc.get("deep_refresh_min", 30)],
                  key=lambda c: (bool(c.get("deep_ts")), -(c.get("created_ts") or 0) if not c.get("deep_ts") else -(c.get("ath_mcap") or 0))
                  )[: pc.get("max_deep_per_scan", 40)]

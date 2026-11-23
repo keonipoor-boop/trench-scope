@@ -24,14 +24,14 @@ def parse_tx(tx: dict, mint: str, pool: str | None = None) -> dict | None:
     # tips + trading-terminal fees: SOL landing in existing plain accounts other than the pool,
     # token accounts and pump's protocol fee wallets (Axiom-style "fees paid")
     token_idx = {b.get("accountIndex") for b in (meta.get("preTokenBalances") or []) + (meta.get("postTokenBalances") or [])}
-    tip = 0
+    tips = {}
     for i, k in enumerate(keys[:min(len(pre), len(post))]):
         d = post[i] - pre[i]
         if i == 0 or d <= 0 or pre[i] == 0 or i in token_idx or k == pool or k in PUMP_FEE_ACCOUNTS \
                 or d == TOKEN_ACCOUNT_RENT:
             continue
-        tip += d
-    tip /= LAMPORTS
+        tips[k] = tips.get(k, 0) + d / LAMPORTS
+    tip = sum(tips.values())
     change = ((post[0] - pre[0]) / LAMPORTS) if pre and post else 0
 
     def bal(lst):
@@ -42,7 +42,7 @@ def parse_tx(tx: dict, mint: str, pool: str | None = None) -> dict | None:
         return None
     side = "buy" if delta > 0 else "sell"
     sol = (-change - fee - tip) if side == "buy" else (change + fee + tip)
-    return {"payer": payer, "side": side, "sol": max(0.0, sol), "fee_sol": fee, "tip_sol": tip,
+    return {"payer": payer, "side": side, "sol": max(0.0, sol), "fee_sol": fee, "tip_sol": tip, "tips": tips,
             "ts": tx.get("blockTime")}
 
 

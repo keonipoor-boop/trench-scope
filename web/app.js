@@ -907,6 +907,25 @@ async function loadLibrary() {
   if (!LIB_SEL && LIB.length) openCodex(LIB[0].name); else if (LIB_SEL) openCodex(LIB_SEL, LIB_VER, true);
 }
 
+// real coins behind the playbook: typical entries, best and worst trades (click one for its coin card)
+function exampleShelf(ex) {
+  if (!ex || !(ex.typical || []).length && !(ex.best || []).length) return "";
+  const card = (p) => {
+    const x = p.multiple, col = x == null ? "#8fa3b5" : x >= 1 ? "#7ee2a8" : "#ff9aa9";
+    return `<button class="ex-card" data-mint="${esc(p.mint)}" title="$${esc(p.symbol)}${p.name ? " · " + esc(p.name) : ""}">
+      ${coinImg(p.image, p.symbol, false, p.mint)}
+      <div class="ex-body"><b>$${esc(p.symbol)}</b>
+        <span>in at ${usd(p.entry_mcap)}${p.entry_age_s != null ? " · " + dur(p.entry_age_s) + " old" : ""}</span>
+        <span>${p.invested_sol != null ? p.invested_sol + " SOL" : ""}${p.hold_s != null ? " · held " + dur(p.hold_s) : ""}${p.closed ? "" : " · still holding"}</span></div>
+      <div class="ex-x" style="color:${col}">${x != null ? x + "x" : "—"}<small>${p.pnl_sol != null ? solFmt(p.pnl_sol) : ""}</small></div></button>`;
+  };
+  const row = (title, sub, list) => list && list.length ? `<div class="ex-row"><div class="ex-h">${title} <i>${sub}</i></div><div class="ex-grid">${list.map(card).join("")}</div></div>` : "";
+  return `<section class="bk-ex"><h4>EXAMPLE TRADES <i>real coins from their wallet that show the playbook</i></h4>
+    ${row("FITS THEIR ENTRY", "recent buys inside their usual market-cap band", ex.typical)}
+    ${row("BEST TRADES", "where the strategy paid", ex.best)}
+    ${row("WORST TRADES", "where it didn't", ex.worst)}</section>`;
+}
+
 async function openCodex(name, ver, quiet) {
   LIB_SEL = name; LIB_VER = ver || null;
   document.querySelectorAll(".codex").forEach(el => el.classList.toggle("sel", el.dataset.name === name));
@@ -945,10 +964,15 @@ async function openCodex(name, ver, quiet) {
         <div class="tags" style="margin-top:8px">${tagsHtml(sp.style, sp.risk_labels)}</div></section>
     </div>
     <section class="bk-play"><h4>PLAYBOOK <i>${sp.playbook_by === "claude" ? "written by Claude" : "auto-written"}</i></h4><div>${esc(sp.playbook || (sp.rules || []).map(r => "• " + r).join("\n"))}</div></section>
+    ${exampleShelf(sp.examples)}
     <section class="bk-hist"><h4>VERSION HISTORY <i>a new version is written only when their strategy actually changes</i></h4>
       ${d.versions.map(h => `<button class="ver ${h === v ? "sel" : ""}" data-v="${h.version}"><b>v${h.version}</b><span>${new Date(h.ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
         <ul>${h.changes.map(c => `<li>${esc(c)}</li>`).join("")}</ul></button>`).join("")}</section>`;
   document.querySelectorAll("#libbook .ver").forEach(b => b.onclick = () => openCodex(name, +b.dataset.v));
+  document.querySelectorAll("#libbook .ex-card").forEach(b => {
+    b.onmouseenter = () => prefetchCoin(b.dataset.mint);
+    b.onclick = (e) => { e.stopPropagation(); openPop(b.dataset.mint, b); };
+  });
 }
 setInterval(() => { if (!$("#libstage").hidden) loadLibrary(); }, 30000);
 

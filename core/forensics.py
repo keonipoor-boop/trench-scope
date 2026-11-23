@@ -29,6 +29,40 @@ def _clamp(x):
     return max(0.0, min(1.0, x))
 
 
+FORENSICS_VERSION = 2  # bump when fee / wash measurement changes: every runner is re-sampled once
+JITO_TIP_ACCOUNTS = {
+    "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5", "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+    "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY", "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
+    "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh", "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+    "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL", "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
+}
+
+
+def strip_pool_fees(trades: list[dict]) -> tuple[list[dict], float]:
+    """SOL a trader sends to a wallet that ~every trade on this pool also pays (creator fee vault, token tax,
+    protocol fee) isn't a fee the trader chose to pay: a dev washing their own coin pays it on every wash
+    trade and gets it straight back. Only tips / terminal fees (paid by some traders, not all) count, like
+    Axiom's "F". Trades carry `tips: {recipient: sol}`; returns (trades with tip_sol recomputed, pool fee SOL)."""
+    with_tips = [t for t in trades if t.get("tips") is not None]
+    if len(with_tips) < 8:
+        return trades, 0.0
+    seen, payers = {}, {}
+    for t in with_tips:
+        for r in t["tips"]:
+            seen[r] = seen.get(r, 0) + 1
+            payers.setdefault(r, set()).add(t.get("payer"))
+    pool_level = {r for r, n in seen.items() if r not in JITO_TIP_ACCOUNTS and n >= 0.9 * len(with_tips) and len(payers[r]) >= 4}
+    removed, out = 0.0, []
+    for t in trades:
+        if t.get("tips") is None:
+            out.append(t)
+            continue
+        pool = sum(v for r, v in t["tips"].items() if r in pool_level)
+        removed += pool
+        out.append({**t, "tip_sol": sum(v for r, v in t["tips"].items() if r not in pool_level)})
+    return out, removed
+
+
 def trade_features(trades: list[dict], min_trade_sol: float = 0.1, paid_pct: float = 0.3) -> dict:
     """trades: [{payer, side: 'buy'|'sell', sol, fee_sol, tip_sol, ts}] (any order).
 
@@ -56,6 +90,8 @@ def trade_features(trades: list[dict], min_trade_sol: float = 0.1, paid_pct: flo
         mode_share = max(counts.values()) / len(sizes)
     ts = sorted(t["ts"] for t in trades if t.get("ts"))
     gaps = [b - a for a, b in zip(ts, ts[1:]) if b >= a]
+    trades, pool_fees = strip_pool_fees(trades)
+
     def overhead(t):  # cap: anything above 5% + 0.01 SOL is a transfer, not a fee
         return min((t.get("fee_sol") or 0) + (t.get("tip_sol") or 0), 0.05 * (t.get("sol") or 0) + 0.01)
     fees = sum(overhead(t) for t in trades)
@@ -66,6 +102,9 @@ def trade_features(trades: list[dict], min_trade_sol: float = 0.1, paid_pct: flo
     return {
         "sample_txs": n, "sample_traders": wallets,
         "sample_fees_sol": round(fees, 5), "sample_volume_sol": round(sum(t.get("sol") or 0 for t in trades), 3),
+        "sample_pool_fees_sol": round(pool_fees, 5),
+        "sample_span_s": (max(t["ts"] for t in trades if t.get("ts")) - min(t["ts"] for t in trades if t.get("ts")))
+        if any(t.get("ts") for t in trades) else None,
         "avg_fee_sol": fees / n,
         "sample_big_trades": len(big),
         "fee_volume_pct": round(big_fees / big_vol * 100, 3) if len(big) >= 8 and big_vol else None,

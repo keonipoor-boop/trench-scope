@@ -174,7 +174,8 @@ Bump `PARSER_VERSION` when parsing changes: every wallet re-syncs once.
 `core/strategy.py`, run at the end of every KOL research. `build_spec()` = entry, exit (`exit_model()`: take-profit
 ladder, first sell, initials out, runner bag, stop-loss, time stop), risk, rules, confidence. `update()` diffs against
 the latest version (`TRACKED` thresholds) and writes a new version + changelog only on a meaningful change; it also
-flags a 7-day "shift". Stored in `kol_strategies`; served by `/api/strategies[/<name>]`; UI is the KOL LAB's
+flags a 7-day "shift". `examples()` adds real coins from the wallet (typical entries, best, worst) shown as EXAMPLE
+TRADES cards (`exampleShelf` in app.js; refreshed every hourly check). Stored in `kol_strategies`; served by `/api/strategies[/<name>]`; UI is the KOL LAB's
 STRATEGY LIBRARY tab (`loadLibrary`/`openCodex` in app.js).
 
 ### Hall of Runners + tape tabs
@@ -182,9 +183,14 @@ STRATEGY LIBRARY tab (`loadLibrary`/`openCodex` in app.js).
   panel `#leaders` (`loadLeaders` in app.js). Runners are never pruned, so longer periods fill in over time.
 - THE TAPE has REAL (default) / FAKE / ANALYZING / ALL tabs: `/api/state?tape_filter=`; counts in `tape_counts`.
 - REAL requires every required check to be measured AND passed; missing data = Analyzing (is_real NULL), never Real.
-  FEES estimates total fees like Axiom's F (`signals/fees.total_fees_sol`: sampled fee rate x volume, SOL price from
-  Jupiter -> kv `sol_usd`); it must be >= `min_fee_volume_pct` of volume and >= `min_sol_per_100k_mcap` (6) SOL per
-  $100k of CURRENT market cap (not ATH: a coin dumping from its peak keeps the fees it earned, so it reads better).
+  FEES estimates total fees like Axiom's F (`signals/fees.total_fees_sol`: the LOWER of sampled fee rate x volume and
+  avg fee per trade x trade count; SOL price from Jupiter -> kv `sol_usd`); it must be >= `min_fee_volume_pct` of volume,
+  >= `min_sol_per_100k_mcap` (6) SOL per $100k of CURRENT market cap (not ATH: a coin dumping from its peak keeps the
+  fees it earned) and >= `min_sol_per_trader` (0.002). The sample is spread evenly over the coin's whole life
+  (`HeliusTxs.spread_sample`: every signature back to launch, then an even pick), so a dev who washed the run can't hide
+  behind later real traders. `forensics.strip_pool_fees`: SOL sent to a wallet that >=90% of sampled trades pay (creator
+  vault, token tax, protocol fee) is NOT a trader fee (a washing dev gets it back). Bump `FORENSICS_VERSION` when
+  measurement changes: all runners drop their fee verdict (-> Analyzing) and are re-sampled.
 - NARRATIVE ROTATION is a board (`renderRotation`): share bar, Leading/Improving/Weakening/Lagging, heating/cooling.
 
 ### DEV SYSTEM

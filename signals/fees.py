@@ -6,10 +6,14 @@ def total_fees_sol(coin: dict) -> float | None:
     the coin's whole traded volume. Falls back to avg fee per trade x trade count."""
     from core.db import get_db
     fvp, vol = coin.get("fee_volume_pct"), coin.get("volume_24h") or coin.get("volume_24h_jup")
+    ests = []
     if fvp is not None and vol:
         sol_usd = get_db().kv_get("sol_usd") or 150
-        return fvp / 100 * vol / sol_usd
-    return coin.get("fees_sol")
+        ests.append(fvp / 100 * vol / sol_usd)
+    if coin.get("fees_sol") is not None:  # avg fee per trade x trade count
+        ests.append(coin["fees_sol"])
+    # the LOWER estimate: a fake has to fail if either view of it says the fees aren't there
+    return min(ests) if ests else None
 
 
 class Fees(Signal):
@@ -28,9 +32,17 @@ class Fees(Signal):
         per = total / (mcap / 100_000) if total is not None and mcap else None
         need_per = c.get("min_sol_per_100k_mcap", 6)
         per100k = f", ≈{total:.1f} SOL total fees = {per:.1f} SOL per $100k of market cap (min {need_per})" if per is not None else ""
+        traders = coin.get("unique_traders")
+        per_trader = total / traders if total is not None and traders else None
+        need_pt = c.get("min_sol_per_trader", 0.002)
+        if per_trader is not None:
+            per100k += f", {per_trader:.4f} SOL per trader (min {need_pt})"
+        if coin.get("sample_pool_fees_sol"):
+            per100k += f" [pool-level fees (creator / tax / protocol) not counted: {coin['sample_pool_fees_sol']:.3f} SOL in sample]"
         if share is not None:
             need_share, need_fvp = c.get("min_fee_paying_volume_pct", 40), c.get("min_fee_volume_pct", 0.3)
-            ok = share >= need_share and (fvp is None or fvp >= need_fvp) and (per is None or per >= need_per)
+            ok = share >= need_share and (fvp is None or fvp >= need_fvp) and (per is None or per >= need_per) \
+                and (per_trader is None or per_trader >= need_pt)
             note = (f"{share:.0f}% of volume paid real fees (min {need_share}%), fees = {fvp:.2f}% of volume"
                     f" (min {need_fvp}%){per100k} [{coin.get('sample_big_trades')} trades >= 0.1 SOL]")
             if not ok:

@@ -111,6 +111,39 @@ class HeliusTxs(Source):
         r = self.http_get(api_url(q))
         return r if isinstance(r, list) else []
 
+    def spread_sample(self, address: str, created_ts: int | None) -> list[dict]:
+        """Trades picked evenly across the coin's whole history (not just the newest minutes): list every
+        signature back to launch (1,000 per cheap RPC page), take an even spread, parse those. A dev who washed
+        the run and stopped can't hide behind the real traders who showed up afterwards."""
+        n = self.conf.get("spread_sample", 300)
+        sigs, before = [], None
+        try:
+            for _ in range(self.conf.get("sig_pages", 25)):
+                params = {"limit": 1000, **({"before": before} if before else {})}
+                r = self.http_post(rpc_url(), json={"jsonrpc": "2.0", "id": 1, "method": "getSignaturesForAddress",
+                                                    "params": [address, params]})
+                page = (r or {}).get("result") or []
+                sigs += [s for s in page if not s.get("err")]
+                if len(page) < 1000 or (created_ts and page[-1].get("blockTime") and page[-1]["blockTime"] <= created_ts):
+                    break
+                before = page[-1]["signature"]
+        except Exception:
+            if not sigs:
+                return []
+        if len(sigs) <= n:
+            pick = [s["signature"] for s in sigs]
+        else:
+            step = len(sigs) / n
+            pick = [sigs[int(i * step)]["signature"] for i in range(n)]
+        out = []
+        for i in range(0, len(pick), 100):
+            try:
+                r = self.http_post(api_url("/transactions"), json={"transactions": pick[i:i + 100]})
+                out += r if isinstance(r, list) else []
+            except Exception:
+                continue
+        return out
+
     @staticmethod
     def to_trades(txs: list[dict], mint: str, pool: str | None = None) -> list[dict]:
         out = []
@@ -134,13 +167,15 @@ class HeliusTxs(Source):
             token_accts = {tb.get("tokenAccount") for a in t.get("accountData") or []
                            for tb in a.get("tokenBalanceChanges") or []}
             skip = {payer, pool, None} | PUMP_FEE_ACCOUNTS | token_accts
-            tip = sum((nt.get("amount") or 0) for nt in t.get("nativeTransfers") or []
-                      if nt.get("fromUserAccount") == payer and nt.get("toUserAccount") not in skip
-                      and nt.get("amount") != TOKEN_ACCOUNT_RENT) / LAMPORTS
+            tips = {}
+            for nt in t.get("nativeTransfers") or []:
+                if nt.get("fromUserAccount") == payer and nt.get("toUserAccount") not in skip and nt.get("amount") != TOKEN_ACCOUNT_RENT:
+                    tips[nt["toUserAccount"]] = tips.get(nt["toUserAccount"], 0) + (nt.get("amount") or 0) / LAMPORTS
+            tip = sum(tips.values())
             change = next((a.get("nativeBalanceChange") or 0 for a in t.get("accountData") or []
                            if a.get("account") == payer), 0) / LAMPORTS
             sol = (-change - fee - tip) if side == "buy" else (change + fee + tip)
-            out.append({"payer": payer, "side": side, "sol": max(0.0, sol), "fee_sol": fee, "tip_sol": tip,
+            out.append({"payer": payer, "side": side, "sol": max(0.0, sol), "fee_sol": fee, "tip_sol": tip, "tips": tips,
                         "ts": t.get("timestamp")})
         return out
 
@@ -150,17 +185,19 @@ class HeliusTxs(Source):
         size, pages = self.conf.get("sample_size", 100), self.conf.get("sample_pages", 5)
         for c in coins:
             pool = c.get("pair_address") or c.get("pool_address") or c.get("bonding_curve")
-            txs, before = [], None
-            try:
-                for _ in range(pages):
-                    batch = self.txs(pool or c["mint"], size, before)
-                    txs += batch
-                    if len(batch) < size:
-                        break
-                    before = batch[-1].get("signature")
-            except Exception:
-                if not txs:
-                    continue
+            txs = self.spread_sample(pool or c["mint"], c.get("created_ts"))
+            if not txs:  # fallback: the newest pages
+                before = None
+                try:
+                    for _ in range(pages):
+                        batch = self.txs(pool or c["mint"], size, before)
+                        txs += batch
+                        if len(batch) < size:
+                            break
+                        before = batch[-1].get("signature")
+                except Exception:
+                    if not txs:
+                        continue
             fc = self.cfg.get("signals", {}).get("fees", {})
             feats = trade_features(self.to_trades(txs, c["mint"], pool), fc.get("min_trade_sol", 0.1),
                                    fc.get("min_fee_volume_pct", 0.3))
