@@ -17,6 +17,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     env:
       APP_VERSION: v1.${{ github.run_number }}
     steps:
@@ -49,12 +50,16 @@ jobs:
 
   release:
     needs: build
+    # publish whatever built: GitHub's macOS runners are sometimes unavailable, which shouldn't block Windows / Linux
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
+      - name: Need at least one build
+        run: ls out/TrenchScope-* >/dev/null
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.${{ github.run_number }}
