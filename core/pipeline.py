@@ -174,6 +174,39 @@ def scan(backfill_days: float | None = None) -> dict:
     due = sorted([c for c in runners.values() if (c.get("deep_ts") or 0) < now - 60 * pc.get("deep_refresh_min", 30)],
                  key=lambda c: -(c.get("ath_mcap") or 0))[: pc.get("max_deep_per_scan", 40)]
     deep = {c["mint"]: c for c in due}
+    # 6. SIGNALS + 7. CATALYSTS: a quick pass now (so the tape never shows unclassified runners while
+    # the slow per-coin research runs), then a full pass after deep enrichment.
+    signals = load_signals(cfg)
+    rules = load_rules()
+    ctx = {"cfg": cfg, "celebrities": {x.lower() for x in load_json_data("celebrities.json", [])}}
+    llm_budget = [10 if llm.available() and cfg.get_path("llm.why_bullets", True) else 0]
+
+    def analyze(final: bool):
+        with AgentRun("CATALYST", "classifying catalysts" if final else "quick classification") as run:
+            for c in runners.values():
+                try:
+                    c["signals"], c["is_real"] = evaluate_all(c, signals)
+                    c["primary_catalyst"], c["catalysts"] = classify(c, rules, ctx)
+                    c["why_template"] = template_why(c)
+                    if final and llm_budget[0] and not c.get("why_llm") and c.get("deep_ts"):
+                        b = llm.why_bullets(c)
+                        llm_budget[0] -= 1
+                        if b:
+                            c["why_llm"] = b
+                    c["why"] = c.get("why_llm") or c["why_template"]
+                except Exception as e:  # one bad coin never blocks the rest
+                    log("CATALYST", f"{c.get('symbol')}: {e}", "warn")
+            stats["real"] = sum(1 for c in runners.values() if c.get("is_real"))
+            mix = defaultdict(int)
+            for c in runners.values():
+                mix[c.get("primary_catalyst")] += 1
+            run.result = f"{len(runners)} runners classified{'' if final else ' (quick)'}, top: " + ", ".join(
+                f"{k} {v}" for k, v in sorted(mix.items(), key=lambda x: -x[1])[:3])
+            log("CATALYST", run.result)
+        db.upsert_many(list(runners.values()))
+
+    analyze(final=False)
+
     log("SCOUT", f"{len(runners)} runners >= ${thr / 1e3:.0f}k ATH, {len(deep)} due for deep enrichment")
     by_agent = defaultdict(list)
     for s in sources:
@@ -194,30 +227,7 @@ def scan(backfill_days: float | None = None) -> dict:
         c["deep_ts"] = now
     stats["deep"] = len(deep)
 
-    # 6. SIGNALS + 7. CATALYSTS ----------------------------------------------
-    signals = load_signals(cfg)
-    rules = load_rules()
-    ctx = {"cfg": cfg, "celebrities": {x.lower() for x in load_json_data("celebrities.json", [])}}
-    llm_budget = 10 if llm.available() and cfg.get_path("llm.why_bullets", True) else 0
-    with AgentRun("CATALYST", "classifying catalysts") as run:
-        for c in runners.values():
-            c["signals"], c["is_real"] = evaluate_all(c, signals)
-            c["primary_catalyst"], c["catalysts"] = classify(c, rules, ctx)
-            c["why_template"] = template_why(c)
-            if llm_budget and not c.get("why_llm") and c.get("deep_ts"):
-                b = llm.why_bullets(c)
-                llm_budget -= 1
-                if b:
-                    c["why_llm"] = b
-            c["why"] = c.get("why_llm") or c["why_template"]
-        real = sum(1 for c in runners.values() if c["is_real"])
-        stats["real"] = real
-        mix = defaultdict(int)
-        for c in runners.values():
-            mix[c["primary_catalyst"]] += 1
-        run.result = f"{len(runners)} runners classified, top: " + ", ".join(
-            f"{k} {v}" for k, v in sorted(mix.items(), key=lambda x: -x[1])[:3])
-        log("CATALYST", run.result)
+    analyze(final=True)
     # per-signal agent summaries (HOLDERS / FEES / KOLS rings)
     for agent, keys in (("HOLDERS", ("holders", "top10")), ("FEES", ("fees", "traders")), ("KOLS", ("kols",))):
         checked = [c for c in runners.values() if any((c.get("signals") or {}).get(k, {}).get("passed") is not None for k in keys)]
@@ -227,7 +237,6 @@ def scan(backfill_days: float | None = None) -> dict:
             log(agent, f"{len(passed)}/{len(checked)} runners pass {'+'.join(keys)}")
         elif agent not in by_agent:
             agent_status(agent, "idle", "no source configured (see doctor)")
-    db.upsert_many(list(runners.values()))
 
     # 8. SNAPSHOTS -------------------------------------------------------------
     with db._lock:

@@ -6,6 +6,8 @@ const mins = (m) => m == null ? "—" : m >= 60 ? (m / 60).toFixed(1) + "h" : Ma
 const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? Math.round(s) + "s" : s < 3600 ? Math.round(s / 60) + "m" : s < 86400 ? (s / 3600).toFixed(1) + "h" : (s / 86400).toFixed(1) + "d"; };
 const CAT = { celebrity_tweet: "CELEB TWEET", tweet_play: "TWEET PLAY", community: "COMMUNITY", cto: "CTO", tech: "TECH/UTILITY",
   kol_call: "KOL CALL", livestream: "LIVESTREAM", news: "NEWS/EVENT", meme: "PURE MEME" };
+const CAT_NICE = { celebrity_tweet: "Celebrity tweet", tweet_play: "Tweet play", community: "Community", cto: "CTO",
+  tech: "Tech / utility", kol_call: "KOL call", livestream: "Livestream", news: "News / event", meme: "Pure meme" };
 const AGENT_INFO = { SCOUT: "discovery", HOLDERS: "holders", KOLS: "kol wallets", FEES: "fees/traders", CATALYST: "why it ran", THESIS: "narrative" };
 const AC = window.Synapse.AGENT_COLORS;
 let STATE = null, lastEvent = 0, selected = null, seenTape = new Set();
@@ -90,13 +92,19 @@ function renderTape() {
   $("#tape-hdr").textContent = `${t.length} latest`;
   $("#book").innerHTML = t.map(c => {
     const isNew = seenTape.size && !seenTape.has(c.mint);
-    return `<div class="row ${c.mint === selected ? "sel" : ""} ${isNew ? "new" : ""}" data-mint="${esc(c.mint)}">
-      <span class="fill ${c.is_real ? "g" : "r"}" style="width:${Math.max(4, Math.log10(c.ath_mcap / 1e5 + 1) / Math.log10(max / 1e5 + 1) * 100)}%"></span>
-      <span class="sym">$${esc(c.symbol)}</span><span class="cat">${esc(CAT[c.primary_catalyst] || "—")}</span>
-      <span class="dim">${mins(c.time_to_100k_min)}</span><span class="r" style="color:${c.is_real ? "#39ff88" : "#ff4d6d"}">${usd(c.ath_mcap)}</span></div>`;
+    const status = c.is_real === true ? '<span class="pill real">Real</span>' : c.is_real === false ? '<span class="pill fake">Fake</span>' : '<span class="pill wait">Analyzing</span>';
+    const sub = [c.primary_catalyst ? CAT_NICE[c.primary_catalyst] || c.primary_catalyst : "Classifying…",
+                 c.holders ? Number(c.holders).toLocaleString() + " holders" : null].filter(Boolean).join(" · ");
+    return `<div class="coin-row ${c.mint === selected ? "sel" : ""} ${isNew ? "new" : ""}" data-mint="${esc(c.mint)}" tabindex="0" role="option">
+      ${coinImg(c.image, c.symbol)}
+      <div class="cn"><b>${esc(c.name || c.symbol)}${status}</b><span>$${esc(c.symbol)} · ${esc(sub)}</span></div>
+      <div class="cv"><b>${usd(c.ath_mcap)}</b><span>now ${usd(c.usd_market_cap)}${c.time_to_100k_min != null ? " · " + mins(c.time_to_100k_min) : ""}</span></div></div>`;
   }).join("");
   t.forEach(c => seenTape.add(c.mint));
-  document.querySelectorAll("#book .row").forEach(el => el.onclick = () => openCoin(el.dataset.mint));
+  document.querySelectorAll("#book .coin-row").forEach(el => {
+    el.onclick = (e) => { e.stopPropagation(); openCoin(el.dataset.mint); openPop(el.dataset.mint, el); };
+    el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); el.click(); } };
+  });
   drawTapeChart();
 }
 
@@ -120,7 +128,7 @@ function drawTapeChart() {
     const y = H - 16 - (acc.reduce((a, b) => a + b) / acc.length - lo) / (hi - lo) * (H - 26), x = X(c.ts_100k || c.created_ts);
     i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); g.setLineDash([]);
   for (const c of cs) {
-    const x = X(c.ts_100k || c.created_ts), col = c.is_real ? "#39ff88" : "#ff4d6d";
+    const x = X(c.ts_100k || c.created_ts), col = c.is_real === true ? "#39ff88" : c.is_real === false ? "#ff4d6d" : "#7d8ba0";
     const cur = Math.max(1e5, Math.min(c.ath_mcap, c.usd_market_cap || 1e5));
     g.strokeStyle = col; g.lineWidth = 1; g.beginPath(); g.moveTo(x, Y(1e5)); g.lineTo(x, Y(c.ath_mcap)); g.stroke();
     g.fillStyle = col; g.globalAlpha = .85; g.fillRect(x - 2.5, Math.min(Y(cur), Y(c.ath_mcap)), 5, Math.max(2, Math.abs(Y(cur) - Y(c.ath_mcap)))); g.globalAlpha = 1;
@@ -540,3 +548,61 @@ $("#koladd-form").addEventListener("submit", async (e) => {
   } catch (err) { $("#kol-msg").textContent = "Save failed: " + err; }
 });
 loadKols(); setInterval(loadKols, 6000);
+
+// ---- coin popover (Claude-style menu card) ------------------------------------------
+function coinImg(url, sym, big) {
+  const ini = esc((sym || "?").replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?");
+  return url && /^https:\/\//.test(url)
+    ? `<img class="cimg${big ? " big" : ""}" src="${esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;cimg${big ? " big" : ""}&quot;>${ini}</div>'">`
+    : `<div class="cimg${big ? " big" : ""}">${ini}</div>`;
+}
+let POP_MINT = null, POP_ACTIONS = {};
+async function openPop(mint, anchor) {
+  const pop = $("#coinpop");
+  let c; try { c = await j("/api/coin/" + encodeURIComponent(mint)); } catch { return; }
+  POP_MINT = mint;
+  const status = c.is_real === true ? '<span class="pill real">Real</span>' : c.is_real === false ? '<span class="pill fake">Fake</span>' : '<span class="pill wait">Analyzing</span>';
+  const link = (u) => u && /^https?:\/\//.test(u) ? u : null;
+  const items = [
+    ["P", "◎", "Open in pump.fun", "https://pump.fun/coin/" + c.mint],
+    ["D", "▦", "Open in DexScreener", link(c.dex_url) || "https://dexscreener.com/solana/" + c.mint],
+    ["S", "⌕", "Open on Solscan", "https://solscan.io/token/" + c.mint],
+    ["X", "𝕏", "Open X / Twitter", link(c.twitter) || link(c.twitter_dex)],
+    ["W", "↗", "Open website", link(c.website)],
+  ].filter(i => i[3]);
+  POP_ACTIONS = Object.fromEntries(items.map(i => [i[0].toLowerCase(), () => window.open(i[3], "_blank", "noopener")]));
+  POP_ACTIONS.c = async () => { try { await navigator.clipboard.writeText(c.mint); $("#pop-copy").textContent = "Copied!"; } catch { prompt("Contract address:", c.mint); } };
+  POP_ACTIONS.f = () => { closePop(); $("#coinfile").scrollIntoView({ behavior: "smooth", block: "start" }); };
+  const sig = Object.values(c.signals || {}).map(s => `<span class="pill ${s.passed === true ? "real" : s.passed === false ? "fake" : "wait"}" title="${esc(s.note)}" style="margin:0">${esc(s.label)}</span>`).join("");
+  const stat = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+  pop.innerHTML = `<div class="pop-head">${coinImg(c.image, c.symbol, true)}
+      <div style="min-width:0"><b>${esc(c.name || c.symbol)}</b><span>$${esc(c.symbol)} · ${esc(CAT_NICE[c.primary_catalyst] || "Classifying…")}</span>${status}</div>
+      <button class="pop-x" aria-label="Close" onclick="closePop()">✕</button></div>
+    <div class="pop-stats">${stat("ATH", usd(c.ath_mcap))}${stat("Now", usd(c.usd_market_cap))}
+      ${stat("To $100k", mins(c.time_to_100k_min))}${stat("Age", ago(c.created_ts))}
+      ${stat("Holders", c.holders != null ? Number(c.holders).toLocaleString() : "—")}${stat("Top 10", c.top10_pct != null ? c.top10_pct + "%" : "—")}
+      ${stat("Traders", c.unique_traders != null ? Number(c.unique_traders).toLocaleString() : "—")}${stat("Vol 24h", usd(c.volume_24h))}</div>
+    ${(c.why || c.why_template || []).length ? `<div class="pop-sep"></div><div class="pop-sec">Why it ran</div><ul class="pop-why">${(c.why || c.why_template).map(b => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}
+    ${sig ? `<div class="pop-sec">Checks</div><div class="pop-sigs">${sig}</div>` : ""}
+    <div class="pop-sep"></div>
+    ${items.map(i => `<a class="pop-item" href="${esc(i[3])}" target="_blank" rel="noopener noreferrer"><span class="ic">${i[1]}</span>${i[2]}<kbd>${i[0]}</kbd></a>`).join("")}
+    <button class="pop-item" onclick="POP_ACTIONS.c()"><span class="ic">⧉</span><span id="pop-copy">Copy contract address</span><kbd>C</kbd></button>
+    <div class="pop-sep"></div>
+    <button class="pop-item" onclick="POP_ACTIONS.f()"><span class="ic">≡</span>Show full coin file<kbd>F</kbd></button>`;
+  pop.hidden = false;
+  // place next to the row like a context menu: left of the list if there's room, else below
+  const r = anchor.getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight, vw = innerWidth, vh = innerHeight;
+  let x = r.left - pw - 10, y = r.top - 8;
+  if (x < 8) { x = Math.min(r.left, vw - pw - 8); y = r.bottom + 6; }
+  y = Math.max(8, Math.min(y, vh - ph - 8));
+  pop.style.left = x + "px"; pop.style.top = y + "px";
+  pop.querySelector(".pop-item")?.focus({ preventScroll: true });
+}
+function closePop() { $("#coinpop").hidden = true; POP_MINT = null; }
+document.addEventListener("click", (e) => { if (POP_MINT && !e.target.closest("#coinpop")) closePop(); });
+document.addEventListener("keydown", (e) => {
+  if (!POP_MINT || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "Escape") { closePop(); return; }
+  const fn = POP_ACTIONS[e.key.toLowerCase()]; if (fn) { e.preventDefault(); fn(); }
+});
+window.addEventListener("scroll", () => POP_MINT && closePop(), { passive: true });

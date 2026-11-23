@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Trench Scope</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -74,9 +74,9 @@
         <div class="tape-head"><span class="bignum sm" id="t-last">—</span><span class="chg" id="t-lastsym"></span></div>
         <canvas id="tapechart"></canvas>
       </div>
-      <div class="book">
-        <div class="book-h"><span>TICKER</span><span>CATALYST</span><span>TTT</span><span class="r">ATH</span></div>
-        <div id="book"></div>
+      <div class="book clean">
+        <div class="book-h"><span>Coin</span><span class="r">ATH · now</span></div>
+        <div id="book" role="listbox" aria-label="Runners"></div>
       </div>
     </div>
   </section>
@@ -157,6 +157,7 @@
   </form>
 </dialog>
 <footer>TRENCH SCOPE · <span id="foot"></span> · not financial advice</footer>
+<div class="pop clean" id="coinpop" role="dialog" aria-label="Coin" hidden></div>
 <script src="/static/synapse.js"></script>
 <script src="/static/app.js"></script>
 </body>

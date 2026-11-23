@@ -38,8 +38,10 @@ def load_signals(cfg) -> list[Signal]:
     return out
 
 
-def evaluate_all(coin: dict, signals: list[Signal]) -> tuple[dict, bool]:
-    res, real = {}, True
+def evaluate_all(coin: dict, signals: list[Signal]) -> tuple[dict, bool | None]:
+    """is_real: False if any required check FAILED, None if none failed but some lack data
+    (still being analysed), True only when every required check passed."""
+    res, real, pending = {}, True, False
     for s in signals:
         try:
             r = s.evaluate(coin)
@@ -50,6 +52,8 @@ def evaluate_all(coin: dict, signals: list[Signal]) -> tuple[dict, bool]:
         res[s.key] = r
         if r["passed"] is None and s.conf.get("allow_missing"):
             continue  # e.g. chart not sampled yet: don't block REAL, decide when data arrives
-        if s.required and r["passed"] is not True:
+        if s.required and r["passed"] is False:
             real = False
-    return res, real
+        elif s.required and r["passed"] is None:
+            pending = True
+    return res, (False if not real else None if pending else True)
