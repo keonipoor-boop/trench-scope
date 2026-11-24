@@ -823,6 +823,11 @@ def start_worker():
                 research_due(max_kols=1)
             except Exception as e:
                 log("KOLS", f"KOL worker: {e}", "warn")
+            try:  # tracked devs: look for new launches from their wallets (hourly each)
+                from core import devs
+                devs.scan_due(1)
+            except Exception as e:
+                log("SCOUT", f"dev worker: {e}", "warn")
             time.sleep(30)
     t = _threading.Thread(target=loop, daemon=True, name="kol-worker")
     t.start()

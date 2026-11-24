@@ -198,6 +198,11 @@ STRATEGY LIBRARY tab (`loadLibrary`/`openCodex` in app.js).
 from PumpPortal / pump.fun) for every dev behind a runner; Jupiter adds total launches + graduations. Labels in
 `labels()` (Hit maker, Fake factory, Clean runners, Serial launcher, One-hit, Migrator, New dev). The KOL LAB's
 DEV SYSTEM tab reuses the solar engine with `SYS_MODE = "dev"` (planets = devs, moons = their runners, `openDev`).
+Tracked devs (`devs.json` in the data dir: `{name, twitter, wallets}`; **+ ADD DEV** / `POST /api/devs`, `DELETE /api/devs/<name>`)
+are pinned (★) even with no runners; all their wallets are pooled (`tracked_profile`). Their launches come from the live feed
+(PumpPortal `creator`) plus `scan_dev()`: an hourly Helius scan of each wallet for pump.fun CREATE txs, run by the KOL worker
+(`scan_due`); found mints are upserted with `creator` so the scan prices and checks them (kv `devlaunches:<wallet>`, `devscan:<wallet>`).
+A tracked dev with no wallet shows "Needs wallet" and an ADD DEV WALLET button.
 
 ### Timeframes
 The dashboard's TIMEFRAME bar (7D … 1H; 1H is the shortest) passes `?tf=` to `/api/state`. `api/server.py:TIMEFRAMES` lists them;

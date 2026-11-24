@@ -462,11 +462,12 @@ function planetSize(k) { const n = k.summary.positions || 0; return Math.round(4
 
 // the same solar system shows KOLs or devs (devs populate themselves from runners' creators)
 let SYS_MODE = "kol";
-const DEV_COLORS = [["Hit maker", "#39ff88"], ["Fake factory", "#ff4d6d"], ["Clean runners", "#22e6ff"], ["Serial launcher", "#ff8a3d"],
+const DEV_COLORS = [["Needs wallet", "#ff3df2"], ["Tracking", "#22e6ff"], ["Hit maker", "#39ff88"], ["Fake factory", "#ff4d6d"], ["Clean runners", "#22e6ff"], ["Serial launcher", "#ff8a3d"],
   ["One-hit", "#a26bff"], ["Migrator", "#ffd23d"], ["New dev", "#f2f7ff"]];
 function devToPlanet(d) {
-  return { name: d.wallet, display: d.name, wallet: d.wallet, status: "done", style: d.labels,
-    pfp: d.best ? "/api/img/" + d.best.mint : null, summary: { positions: d.runners * 4, win_rate: null },
+  return { name: d.key || d.wallet, display: (d.tracked ? "★ " : "") + d.name, wallet: d.wallet, status: "done", style: d.labels,
+    tracked: !!d.tracked, needs_wallet: !!d.needs_wallet,
+    pfp: d.pfp || (d.best ? "/api/img/" + d.best.mint : null), summary: { positions: Math.max(d.runners * 4, d.tracked ? 12 : 0), win_rate: null },
     devRunners: d.runners, devReal: d.real, devFake: d.fake,
     holdings: (d.moons || []).slice(0, 5).map(m => ({ ...m, invested_sol: null, multiple: null, unrealized_sol: null })) };
 }
@@ -515,7 +516,7 @@ async function loadKols() {
       p.el.classList.toggle("running", k.status === "running" || k.status === "new");
       p.el.title = `${k.name} · ${(k.style || []).join(", ") || k.status}`;
       const per = (k.periods || {})[KPERIOD];
-      const pnl = SYS_MODE === "dev" ? `<span style="color:#7ee2a8"> · ${k.devRunners} runner${k.devRunners === 1 ? "" : "s"}</span>`
+      const pnl = SYS_MODE === "dev" ? (k.needs_wallet ? `<span style="color:#ff9de6"> · add wallet</span>` : `<span style="color:#7ee2a8"> · ${k.devRunners} runner${k.devRunners === 1 ? "" : "s"}</span>`)
         : per ? `<span style="color:${(per.realized_sol ?? per.pnl_sol) >= 0 ? "#7ee2a8" : "#ff9aa9"}"> · ${solFmt(per.realized_sol ?? per.pnl_sol)}${KPERIOD === "lifetime" && k.history_complete === false ? "…" : ""}</span>` : "";
       p.el.innerHTML = pfpHtml(k.pfp, k.display || k.name) + `<span class="pl-name">${esc(k.display || k.name)}${pnl}</span>`;
     }
@@ -624,7 +625,7 @@ function zoomOut() {
 $("#kd-close").onclick = zoomOut;
 $("#kolstage").addEventListener("click", (e) => { if (ZOOMED && e.target.closest(".kol-space") && !e.target.closest(".kol-planet")) zoomOut(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && ZOOMED && !document.querySelector("dialog[open]")) zoomOut(); });
-$("#kolsun").onclick = (e) => { e.stopPropagation(); if (SYS_MODE === "kol") openKolForm(null); };
+$("#kolsun").onclick = (e) => { e.stopPropagation(); SYS_MODE === "kol" ? openKolForm(null) : openDevForm(null); };
 requestAnimationFrame(spaceFrame);
 
 function historyLine(h) {
@@ -785,7 +786,32 @@ function openKolForm(k) {
   $("#kol-pw").hidden = !(SETTINGS && SETTINGS.needs_password); $("#kol-msg").textContent = "";
   $("#koladd").showModal();
 }
-$("#btn-addkol").onclick = () => openKolForm(null);
+$("#btn-addkol").onclick = () => SYS_MODE === "dev" ? openDevForm(null) : openKolForm(null);
+
+// tracked devs: you add a dev (name, X handle, dev wallets); they're pinned on the DEV SYSTEM
+function openDevForm(d) {
+  const f = $("#devadd-form"); f.reset();
+  if (d) { f.old_name.value = d.name; f.name.value = d.name; f.twitter.value = d.twitter || ""; f.wallets.value = (d.wallets || []).join("\n"); }
+  $("#dev-pw").hidden = !(SETTINGS && SETTINGS.needs_password); $("#dev-msg").textContent = "";
+  $("#devadd").showModal();
+  if (d && !(d.wallets || []).length) f.wallets.focus();
+}
+$("#devadd-form").addEventListener("submit", async (e) => {
+  if (e.submitter && e.submitter.value === "cancel") return;
+  e.preventDefault(); const f = e.target;
+  if (f.admin.value) ADMIN_PW = f.admin.value;
+  $("#dev-msg").textContent = "saving…";
+  try {
+    const r = await fetch("/api/devs", { method: "POST", headers: { "content-type": "application/json", "x-admin-password": ADMIN_PW },
+      body: JSON.stringify({ name: f.name.value, twitter: f.twitter.value, wallets: f.wallets.value, old_name: f.old_name.value || null }) });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok) { $("#dev-msg").textContent = r.status === 403 ? "Wrong admin password." : (out.detail || "Save failed (" + r.status + ")"); return; }
+    $("#devadd").close(); const nm = f.name.value.trim();
+    _CACHE.delete("/api/devs/" + encodeURIComponent(nm));
+    if (SYS_MODE !== "dev") document.querySelector('#kollab .kl-tabs [data-tab="devs"]').click();
+    await loadKols(); setTimeout(() => zoomTo(nm), 300);
+  } catch (err) { $("#dev-msg").textContent = "Save failed: " + err; }
+});
 $("#koladd-form").addEventListener("submit", async (e) => {
   if (e.submitter && e.submitter.value === "cancel") return;
   e.preventDefault(); const f = e.target;
@@ -861,23 +887,29 @@ document.querySelectorAll("#kollab .kl-tabs button").forEach(b => b.onclick = ()
   const lib = b.dataset.tab === "library";
   document.querySelectorAll("#kollab .kl-tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
   $("#kolstage").hidden = lib; $("#libstage").hidden = !lib;
-  $("#btn-addkol").hidden = b.dataset.tab === "devs";
+  $("#btn-addkol").hidden = lib; $("#btn-addkol").textContent = b.dataset.tab === "devs" ? "+ ADD DEV" : "+ ADD KOL";
   if (lib) loadLibrary(); else setSysMode(b.dataset.tab === "devs" ? "dev" : "kol");
 });
 
 async function openDev(wallet, pre) {
   KOL_SEL = wallet;
-  $("#koldetail-body").innerHTML = `<div class="empty"><span class="spin">◌</span> studying dev ${esc(wallet.slice(0, 4))}…${esc(wallet.slice(-4))}…</div>`;
+  const lbl = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet) ? `${wallet.slice(0, 4)}…${wallet.slice(-4)}` : wallet;
+  $("#koldetail-body").innerHTML = `<div class="empty"><span class="spin">◌</span> studying dev ${esc(lbl)}…</div>`;
   let d; try { d = await (pre || j("/api/devs/" + encodeURIComponent(wallet))); } catch {
     $("#koldetail-body").innerHTML = '<div class="empty">couldn\'t load this dev, try again in a moment</div>'; return; }
   if (KOL_SEL !== wallet) return;
   const cell = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
   $("#koldetail").dataset.status = "done";
-  $("#koldetail-body").innerHTML = `<div class="kd-top">${coinImg(d.best?.image, d.best?.symbol || d.name, true, d.best?.mint).replace('class="cimg big"', 'class="cimg big" style="width:84px;height:84px;border-radius:50%"')}
-      <div style="min-width:0"><div class="kd-name">DEV ${esc(d.name)}</div>
-        <a class="dim" href="https://solscan.io/account/${esc(d.wallet)}" target="_blank" rel="noopener noreferrer">${esc(d.wallet.slice(0, 10))}… on Solscan ↗</a>
+  const ws = d.tracked ? (d.wallets || []) : [d.wallet];
+  const avatar = d.pfp ? pfpHtml(d.pfp, d.name, true) : coinImg(d.best?.image, d.best?.symbol || d.name, true, d.best?.mint).replace('class="cimg big"', 'class="cimg big" style="width:84px;height:84px;border-radius:50%"');
+  $("#koldetail-body").innerHTML = `<div class="kd-top">${avatar}
+      <div style="min-width:0"><div class="kd-name">${d.tracked ? "★ " : "DEV "}${esc(d.name)}</div>
+        ${d.handle ? `<a class="dim" href="https://x.com/${encodeURIComponent(d.handle)}" target="_blank" rel="noopener noreferrer">@${esc(d.handle)} ↗</a><br>` : ""}
+        ${ws.map(w => `<a class="dim" href="https://solscan.io/account/${esc(w)}" target="_blank" rel="noopener noreferrer">${esc(w.slice(0, 6))}…${esc(w.slice(-4))} on Solscan ↗</a>`).join("<br>")}
+        ${d.needs_wallet ? '<div style="margin-top:8px"><button id="dev-addw" class="big-cta">+ ADD DEV WALLET</button></div>' : ""}
         <div class="tags" style="margin-top:6px">${(d.labels || []).map(l => `<span class="tag ${["Fake factory", "Serial launcher"].includes(l) ? "bad" : ["Hit maker", "Clean runners"].includes(l) ? "good" : "s"}">${esc(l)}</span>`).join("")}</div></div>
-      <div class="kd-actions"><button id="dev-copy">COPY WALLET</button></div></div>
+      <div class="kd-actions">${d.wallet ? '<button id="dev-copy">COPY WALLET</button>' : ""}${d.tracked ? '<button id="dev-edit">EDIT</button><button id="dev-del">DELETE</button>' : '<button id="dev-track">★ TRACK THIS DEV</button>'}
+        ${d.tracked && d.scanned_ts ? `<span class="kd-auto">launch scan ${ago(d.scanned_ts)} ago</span>` : ""}</div></div>
     <div class="kd-desc" style="margin-top:12px">${esc(d.description)}</div>
     <div class="sec"><span>TRACK RECORD</span><span>launch + graduation counts from Jupiter; runners from what Trench Scope has seen</span></div>
     <div class="grid4">${cell("LAUNCHES", d.launches)}${cell("GRADUATED", d.migrations != null ? `${d.migrations} (${d.migration_rate}%)` : "—")}
@@ -889,7 +921,11 @@ async function openDev(wallet, pre) {
     <div class="clean">${d.runner_coins.map(c => coinRowHtml(c)).join("") || '<div class="dim">none yet</div>'}</div>
     ${d.other_coins.length ? `<div class="sec"><span>OTHER LAUNCHES WE'VE SEEN</span><span>${d.other_coins.length}</span></div>
       <div class="clean">${d.other_coins.map(c => coinRowHtml(c, { sub: "launched " + ago(c.created_ts) + " ago" })).join("")}</div>` : ""}`;
-  $("#dev-copy").onclick = async () => { try { await navigator.clipboard.writeText(d.wallet); $("#dev-copy").textContent = "COPIED"; } catch { prompt("Dev wallet:", d.wallet); } };
+  if ($("#dev-copy")) $("#dev-copy").onclick = async () => { try { await navigator.clipboard.writeText(d.wallet); $("#dev-copy").textContent = "COPIED"; } catch { prompt("Dev wallet:", d.wallet); } };
+  if ($("#dev-edit")) $("#dev-edit").onclick = () => openDevForm(d);
+  if ($("#dev-addw")) $("#dev-addw").onclick = () => openDevForm(d);
+  if ($("#dev-track")) $("#dev-track").onclick = () => openDevForm({ name: "", wallets: [d.wallet] });
+  if ($("#dev-del")) $("#dev-del").onclick = () => { if (confirm(`Stop tracking ${d.name}?`)) kolPost(`/api/devs/${encodeURIComponent(d.name)}`, "DELETE", () => { zoomOut(); _CACHE.clear(); }); };
   document.querySelectorAll("#koldetail-body .coin-row").forEach(el => {
     el.onmouseenter = () => prefetchCoin(el.dataset.mint);
     el.onclick = (e) => { e.stopPropagation(); openPop(el.dataset.mint, el); };

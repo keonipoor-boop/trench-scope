@@ -174,6 +174,19 @@
     <div class="set-actions"><button value="cancel" formnovalidate>CLOSE</button><button id="kol-save" value="default">RESEARCH</button></div>
   </form>
 </dialog>
+<dialog id="devadd">
+  <form method="dialog" id="devadd-form">
+    <h3>◆ ADD / EDIT DEV</h3>
+    <input type="hidden" name="old_name">
+    <label class="set-key">NAME<input name="name" required maxlength="40" placeholder="e.g. Esoteric Pigeon"></label>
+    <label class="set-key">X HANDLE<input name="twitter" placeholder="@handle (for the profile picture)"></label>
+    <label class="set-key">DEV WALLETS<textarea name="wallets" rows="4" placeholder="the wallet(s) they launch coins from, one per line"></textarea></label>
+    <label class="set-key" id="dev-pw" hidden>ADMIN PASSWORD<input type="password" name="admin" autocomplete="current-password"></label>
+    <p class="dim small">Every coin these wallets launch is tracked: caught live from the launch feed, plus an hourly scan of each wallet's history (needs a Helius key). Their coins get priced and run through the REAL / FAKE checks like any runner.</p>
+    <p class="small" id="dev-msg"></p>
+    <div class="set-actions"><button value="cancel" formnovalidate>CLOSE</button><button id="dev-save" value="default">TRACK DEV</button></div>
+  </form>
+</dialog>
 <footer>TRENCH SCOPE · <span id="foot"></span> · not financial advice</footer>
 <div class="pop clean" id="coinpop" role="dialog" aria-label="Coin" hidden></div>
 <script src="/static/synapse.js"></script>

@@ -23,6 +23,7 @@ args = [
     "--add-data", f"data/narratives.json{sep}data",
     "--add-data", f"data/celebrities.json{sep}data",
     "--add-data", f"data/kols.json{sep}data",
+    "--add-data", f"data/devs.json{sep}data",
     "--add-data", f"config.json{sep}.",
     "--add-data", f"version.json{sep}.",
 ]

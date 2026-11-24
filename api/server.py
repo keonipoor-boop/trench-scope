@@ -391,6 +391,46 @@ def devs_list(limit: int = 24):
     return devs.devs_list(limit)
 
 
+@app.post("/api/devs")
+async def dev_save(req: Request):
+    """Add / edit a tracked dev: {name, twitter, wallets (list or text), old_name?}."""
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import devs
+    b = await req.json()
+    name = (b.get("name") or "").strip()[:40]
+    if not name:
+        raise HTTPException(400, "name required")
+    ws = b.get("wallets") or []
+    if isinstance(ws, str):
+        ws = _re.split(r"[\s,]+", ws)
+    ws = list(dict.fromkeys(w.strip() for w in ws if w.strip()))
+    bad = [w for w in ws if not _WALLET.match(w)]
+    if bad:
+        raise HTTPException(400, f"not a Solana address: {bad[0][:50]}")
+    tw = (b.get("twitter") or "").strip().lstrip("@")
+    if tw and not tw.startswith("http"):
+        tw = f"https://x.com/{tw}"
+    devs.save_tracked({"name": name, "twitter": tw or None, "wallets": ws, "old_name": b.get("old_name")})
+    def go():
+        for w in ws:
+            try:
+                devs.scan_dev(w)
+            except Exception:
+                pass
+    threading.Thread(target=go, daemon=True).start()
+    return {"ok": True}
+
+
+@app.delete("/api/devs/{name}")
+def dev_delete(name: str, req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import devs
+    devs.delete_tracked(name)
+    return {"ok": True}
+
+
 @app.get("/api/devs/{wallet}")
 def dev_detail(wallet: str):
     from core import devs

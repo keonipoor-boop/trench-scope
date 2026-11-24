@@ -606,3 +606,5 @@ dialog h3 { margin: 0 0 12px; letter-spacing: .12em; font-size: 13px; color: var
 .ex-body span { display: block; color: #7f93a5; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ex-x { font: 800 14px JetBrains Mono, monospace; text-align: right; }
 .ex-x small { display: block; font: 500 10.5px Inter, sans-serif; color: #8fa3b5; }
+
+.panel button.big-cta { border-color: var(--mag); color: #fff; background: #ff3df233; padding: 4px 12px; font-weight: 700; }
