@@ -237,6 +237,10 @@ Add a `<section class="panel p-cyan" id="x">` in web/index.html, a grid-area in 
 - **Desktop:** `launcher.py` is the app entry point. `build_desktop.py` runs PyInstaller, and
   `.github/workflows/desktop.yml` builds Windows/macOS/Linux and publishes a GitHub Release on every push to main.
   `version.json` is stamped at build time. `core/updates.py` compares it with the latest release and drives the update banner.
+- **Friends Edition** (`core/edition.py`): the same code built a second time (`EDITION=friends` in the workflow matrix) as
+  `TrenchScope-Friends-v1.N-*`: its own data folder (`TrenchScopeFriends`), port 8100 and a FRIENDS EDITION badge, so it never
+  shares keys, KOLs or history with the main copy, even on one computer. Same release, same update banner. Run from source
+  with `TRENCH_EDITION=friends`. Add an edition: a row in `EDITIONS` + the workflow matrix.
 - **Writable state** (db, `settings.json`, your copies of data/*.json, `config.local.json`) lives in `TRENCH_DATA_DIR`
   (desktop: the OS user-data folder; default: `./data`). Bundled defaults in `ROOT/data` are the fallback.
 - **Settings API** (`/api/settings`): saving is allowed from localhost, or with header `x-admin-password` when `ADMIN_PASSWORD`

@@ -370,6 +370,10 @@ async function loadMeta() {
     b.innerHTML = `DEMO MODE · generated data. <button onclick="openSettings()">SWITCH TO LIVE</button>`;
   }
   $("#foot").dataset.v = VERSION ? VERSION.version : "";
+  if (VERSION && VERSION.edition === "friends") {  // Friends Edition: same app, its own data
+    document.title = "Trench Scope Friends";
+    if (!$("#ed-badge")) $(".livewire").insertAdjacentHTML("afterbegin", '<span class="lw-badge" id="ed-badge" style="background:#ff3df2">FRIENDS EDITION</span>');
+  }
 }
 
 function openSettings() {

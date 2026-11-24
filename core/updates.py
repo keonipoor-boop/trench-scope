@@ -38,6 +38,8 @@ def status() -> dict:
             threading.Thread(target=_check, args=(repo,), daemon=True).start()
     latest = _state["latest"]
     cur = v.get("version", "dev")
-    return {**v, "latest": latest, "release_url": _state["url"],
+    from core.edition import current
+    ed = current()
+    return {**v, "edition": ed["edition"], "app_name": ed["name"], "latest": latest, "release_url": _state["url"],
             "update_available": bool(latest and cur not in ("dev", latest)),
             "hosted": bool(__import__("os").getenv("RENDER") or __import__("os").getenv("TRENCH_HOSTED"))}

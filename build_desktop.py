@@ -7,14 +7,18 @@ import time
 
 import PyInstaller.__main__
 
+from core.edition import EDITIONS
+
 version = os.getenv("APP_VERSION", "dev")
 repo = os.getenv("GITHUB_REPOSITORY", "")
+edition = EDITIONS[os.getenv("EDITION", "main")]
 with open("version.json", "w") as f:
-    json.dump({"version": version, "repo": repo, "built": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())}, f)
+    json.dump({"version": version, "repo": repo, "edition": edition["edition"],
+               "built": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())}, f)
 
 sep = os.pathsep
 args = [
-    "launcher.py", "--name", "TrenchScope", "--noconfirm", "--clean",
+    "launcher.py", "--name", edition["file"], "--noconfirm", "--clean",
     "--add-data", f"web{sep}web",
     "--add-data", f"data/narratives.json{sep}data",
     "--add-data", f"data/celebrities.json{sep}data",
@@ -25,7 +29,7 @@ args = [
 for pkg in ("core", "api", "sources", "signals", "catalysts", "uvicorn", "anthropic", "websockets"):
     args += ["--collect-submodules", pkg]
 if sys.platform == "darwin":
-    args += ["--windowed", "--osx-bundle-identifier", "app.trenchscope"]  # TrenchScope.app
+    args += ["--windowed", "--osx-bundle-identifier", "app.trenchscope" + ("" if edition["edition"] == "main" else "." + edition["edition"])]
 else:
     args += ["--onefile"]                                                  # one TrenchScope(.exe)
 PyInstaller.__main__.run(args)

@@ -16,10 +16,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
+        edition: [main, friends]   # Friends Edition = same app, its own name / data folder / port
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     env:
       APP_VERSION: v1.${{ github.run_number }}
+      EDITION: ${{ matrix.edition }}
+      FILE: ${{ matrix.edition == 'friends' && 'TrenchScope-Friends' || 'TrenchScope' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,22 +34,22 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Rename-Item dist/TrenchScope.exe "TrenchScope-$env:APP_VERSION.exe"
-          Compress-Archive -Path "dist/TrenchScope-$env:APP_VERSION.exe" -DestinationPath "TrenchScope-$env:APP_VERSION-Windows.zip"
+          Rename-Item "dist/$env:FILE.exe" "$env:FILE-$env:APP_VERSION.exe"
+          Compress-Archive -Path "dist/$env:FILE-$env:APP_VERSION.exe" -DestinationPath "$env:FILE-$env:APP_VERSION-Windows.zip"
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          mv dist/TrenchScope.app "dist/TrenchScope-$APP_VERSION.app"
-          ditto -c -k --keepParent "dist/TrenchScope-$APP_VERSION.app" "TrenchScope-$APP_VERSION-macOS.zip"
+          mv "dist/$FILE.app" "dist/$FILE-$APP_VERSION.app"
+          ditto -c -k --keepParent "dist/$FILE-$APP_VERSION.app" "$FILE-$APP_VERSION-macOS.zip"
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
-          mv dist/TrenchScope "dist/TrenchScope-$APP_VERSION"
-          tar -czf "TrenchScope-$APP_VERSION-Linux.tar.gz" -C dist "TrenchScope-$APP_VERSION"
+          mv "dist/$FILE" "dist/$FILE-$APP_VERSION"
+          tar -czf "$FILE-$APP_VERSION-Linux.tar.gz" -C dist "$FILE-$APP_VERSION"
       - uses: actions/upload-artifact@v4
         with:
-          name: app-${{ runner.os }}
-          path: TrenchScope-*
+          name: app-${{ runner.os }}-${{ matrix.edition }}
+          path: ${{ env.FILE }}-v*
 
   release:
     needs: build
@@ -72,4 +75,6 @@ jobs:
             - macOS: `…-macOS.zip` → the `.app` (first time: right-click → Open)
             - Linux: `…-Linux.tar.gz`
             Opening a new version automatically closes an older one that is still running.
+            **Friends Edition** (`TrenchScope-Friends-…` files): the same app with its own data folder and port, for sharing.
+            It never sees your keys, KOLs or history, and it updates with every release like the main app.
             Your keys and data live in your user folder, so installing a new version keeps them.

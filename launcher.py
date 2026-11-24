@@ -20,7 +20,8 @@ def data_dir() -> Path:
         base = Path.home() / "Library" / "Application Support"
     else:
         base = Path(os.getenv("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-    d = base / "TrenchScope"
+    from core.edition import current
+    d = base / current()["folder"]
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -75,19 +76,32 @@ def free_port(start=8000) -> int:
     return start
 
 
+def running_edition(port):
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/version", timeout=2) as r:
+            return json.loads(r.read()).get("edition") or "main"
+    except Exception:
+        return None
+
+
 def main():
+    from core.edition import current
+    ed = current()
     os.environ.setdefault("TRENCH_DATA_DIR", str(data_dir()))
-    if already_running(8000):
-        old = running_version(8000)
+    home = ed["port"]  # main 8000, friends 8100: both can run on one computer
+    if already_running(home) and running_edition(home) == ed["edition"]:
+        old = running_version(home)
         if old == my_version():
-            webbrowser.open("http://127.0.0.1:8000")  # this version is already running
+            webbrowser.open(f"http://127.0.0.1:{home}")  # this version is already running
             return
         print(f"  Replacing the running copy ({old or 'older version'}) with {my_version()}...")
-        if not stop_old_copy(8000):
+        if not stop_old_copy(home):
             print("  Old copy did not stop (it predates auto-replace). Starting on another port; close the old window when you can.")
-    port = free_port(8000)
+    port = free_port(home)
     url = f"http://127.0.0.1:{port}"
-    print(f"\n  TRENCH SCOPE is running at {url}\n  Close this window to stop it.\n  Data folder: {os.environ['TRENCH_DATA_DIR']}\n")
+    print(f"\n  {ed['name'].upper()} is running at {url}\n  Close this window to stop it.\n  Data folder: {os.environ['TRENCH_DATA_DIR']}\n")
 
     from core.config import load_config
     load_config()
