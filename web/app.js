@@ -158,7 +158,14 @@ function drawTapeChart() {
 function renderSynapse() {
   const th = STATE.themes, d = th.daily;
   window.Synapse.update(th.themes, STATE.agents, th.hourly_leader);
-  $("#syn-hdr").textContent = `${th.themes.filter(t => t.runners).length} active neurons`;
+  $("#syn-hdr").textContent = `${th.themes.filter(t => t.runners).length} active neurons · fakes quarantined`;
+  const q = th.quarantine || { count: 0, by_theme: [], top: [] };
+  $("#quarantine").innerHTML = `<div class="side-title">QUARANTINE <i>— fake runners, kept out of the web</i></div>
+    <button class="qz-head" id="qz-all"><b>${q.count}</b><span>fake runners · ${q.pct}% of all runners in ${TF}</span><em>view all →</em></button>
+    ${q.by_theme.map(([t, n]) => `<div class="qz-t"><span>${esc(t)}</span><div><i style="width:${n / Math.max(1, q.by_theme[0][1]) * 100}%"></i></div><b>${n}</b></div>`).join("")}
+    ${q.top.length ? `<div class="qz-top">${q.top.map(c => `<button data-mint="${esc(c.mint)}" title="${esc(c.name || "")} · peak ${usd(c.ath)}">$${esc(c.symbol || "?")} <i>${usd(c.ath)}</i></button>`).join("")}</div>` : ""}`;
+  $("#qz-all").onclick = (e) => { e.stopPropagation(); fakeListPop(e.currentTarget); };
+  document.querySelectorAll("#quarantine .qz-top [data-mint]").forEach(b => b.onclick = (e) => { e.stopPropagation(); openPop(b.dataset.mint, b); });
   $("#synstats").innerHTML = `<div><span>${TF} LEADER</span><b class="g">${esc(d.leader || "—")}</b></div>
     <div><span>RUNNERS ${TF}</span><b>${d.runners}</b></div><div><span>LAUNCHES</span><b>${d.launches.toLocaleString()}</b></div>
     <div><span>HIT RATE</span><b>${d.hit_rate}%</b></div><div><span>REAL</span><b class="g">${d.real_pct ?? "—"}%</b></div>
@@ -1215,11 +1222,25 @@ const coinList = (cs, empty, subFn) => (LAST_LIST = cs, cs).length ? cs.map(c =>
   : `<div class="pop-sec" style="padding-bottom:10px">${empty}</div>`;
 const tfQ = () => "tf=" + encodeURIComponent(TF);
 
+// QUARANTINE: every fake runner in the timeframe, each with its "why it's fake"
+async function fakeListPop(anchor) {
+  const url = `/api/coins?${tfQ()}&real=false&limit=60`;
+  const back = { label: "Back to fake runners", fn: () => fakeListPop(anchor) };
+  showPanel(panelHtml({ dot: "#ff6b6b", title: "Quarantine · fake runners", sub: `${TF} · failed a REAL check (fees, wash trading, chart, holders) · kept out of the narrative web`,
+    body: `<div id="qz-list"><div class="pop-sec"><span class="spin">◌</span> loading…</div></div>` }), anchor, { back });
+  try {
+    const d = await cj(url, 20000);
+    $("#qz-list").innerHTML = coinList(d.coins || [], "no fake runners in this timeframe", c => c.fake_headline || "failed a REAL check");
+    $("#qz-list").querySelectorAll(".coin-row").forEach(el => { el.onmouseenter = () => prefetchCoin(el.dataset.mint); el.onclick = (e) => { e.stopPropagation(); openPop(el.dataset.mint, anchor, back); }; });
+    placePop(anchor);
+  } catch { $("#qz-list").innerHTML = '<div class="pop-sec">couldn\'t load the list</div>'; }
+}
+
 async function themePop(name, anchor) {
   const row = (STATE.themes.themes || []).find(t => t.theme === name) || {};
   const idx = STATE.themes.themes.findIndex(t => t.theme === name);
   const color = window.Synapse.PALETTE[idx % window.Synapse.PALETTE.length];
-  const turl = `/api/coins?${tfQ()}&theme=${encodeURIComponent(name)}&limit=40`;
+  const turl = `/api/coins?${tfQ()}&theme=${encodeURIComponent(name)}&real=notfake&limit=40`;
   let d = peek(turl);
   if (!d) {
     showPanel(panelHtml({ dot: color, title: esc(name), sub: `${row.runners ?? "…"} runners in ${TF}`,

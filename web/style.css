@@ -930,3 +930,16 @@ body.desk-on { background: #060607; }
 .hs-d textarea, .hs-d input { width: 100%; background: #0a0a0b; color: #e4e4e4; border: 1px solid #2c2c2c; border-radius: 2px; font: 12px Inter, sans-serif; padding: 6px; margin-bottom: 6px; }
 @media (max-width: 1100px) { .hs-ins, .hs-d { grid-template-columns: 1fr; } .hs-kpis { grid-template-columns: repeat(3, 1fr); }
   .hs-h { display: none; } .hs-r { grid-template-columns: 1fr 1fr 1fr; } }
+
+/* ---- QUARANTINE: fake runners kept out of the narrative web ------------------------------------------ */
+.quarantine { margin-top: 10px; border-top: 1px solid #1f1f1f; padding-top: 8px; }
+.qz-head { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: baseline; width: 100%; text-align: left;
+  background: #1a0e10; border: 1px solid #4a2226; border-radius: 2px; padding: 6px 8px; color: #e6e6e6; cursor: pointer; font: inherit; }
+.qz-head b { font-size: 18px; color: #ff6b6b; } .qz-head span { font: 11px Inter, sans-serif; color: #b3b3b3; } .qz-head em { font-style: normal; font-size: 9.5px; color: #ff8a8a; }
+.qz-head:hover { border-color: #ff6b6b; }
+.qz-t { display: grid; grid-template-columns: 104px 1fr 24px; gap: 6px; align-items: center; font-size: 10px; color: #9a9a9a; padding: 2px 0; }
+.qz-t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .qz-t div { height: 4px; background: #1c1c1c; } .qz-t i { display: block; height: 100%; background: #ff6b6b99; }
+.qz-t b { text-align: right; color: #d8d8d8; font-weight: 500; }
+.qz-top { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.qz-top button { background: #121213; border: 1px solid #2c2c2c; color: #d8d8d8; font: 10px "JetBrains Mono", monospace; padding: 2px 6px; cursor: pointer; border-radius: 2px; }
+.qz-top button i { font-style: normal; color: #7c7c7c; } .qz-top button:hover { border-color: #ff6b6b; }

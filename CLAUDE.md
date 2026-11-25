@@ -320,6 +320,11 @@ and X search results (`x_top_tweets`, top 8 by engagement, from `sources/twitter
 (before launch / before it crossed $100k / after) and `boost` = before or during the run AND (linked tweet, celebrity,
 KOL, big account, or real engagement). UI: COIN FILE tabs (`CF_TAB`, `xPostsHtml`) and the coin popover's "Posts that boosted it" (key B).
 
+### QUARANTINE (fake runners out of the narrative web)
+`api/server.themes_live()` feeds the Synapse with REAL + still-analyzing runners only (`thesis.compute(..., coins=clean)`); fake runners
+(is_real False) go to `quarantine` {count, pct, by_theme, top} shown under SENSORY INPUT (`#quarantine`); "view all" -> `fakeListPop`
+(`/api/coins?real=false`, each with its fake headline). Narrative popovers list `real=notfake` coins.
+
 ### Clickable Synapse + popovers
 Everything in the Synapse opens a Claude-style popover (`#coinpop`, web/app.js): narrative neurons -> `themePop`,
 agent blobs -> `agentPop` (SCOUT/HOLDERS/KOLS/FEES/CATALYST/THESIS), SENSORY INPUT cards -> `sourcePop`, tape rows

@@ -158,13 +158,28 @@ def themes_live(tf: str = "24H"):
     tail_h = max(wh / 24 if w >= 86400 else wh / 6, 1 / 3600)
     # compare against the 3x window before it, but only as far back as data is kept (lookback + 4 days)
     kept_h = (get_config().get_path("pipeline.lookback_days", 7) + 4) * 24
-    d = thesis.compute(wh, max(min(wh * 3, kept_h - wh), wh * 0.25))
-    h = thesis.compute(tail_h, tail_h * 6)
+    base_h = max(min(wh * 3, kept_h - wh), wh * 0.25)
+    # the narrative web counts REAL + still-analyzing runners only; fake runners go to the QUARANTINE section
+    allc = get_db().light_coins(int(time.time() - (wh + base_h) * 3600 - 86400))
+    clean = [c for c in allc if not (c.get("is_runner") and c.get("is_real") is False)]
+    d = thesis.compute(wh, base_h, coins=clean)
+    h = thesis.compute(tail_h, tail_h * 6, coins=clean)
+    start = time.time() - w
+    fakes = sorted([c for c in allc if c.get("is_runner") and c.get("is_real") is False and thesis.event_ts(c) >= start],
+                   key=lambda c: -(c.get("ath_mcap") or 0))
+    by_theme = {}
+    for c in fakes:
+        for t in (c.get("themes") or ["Unthemed"]):
+            by_theme[t] = by_theme.get(t, 0) + 1
+    runners_all = sum(1 for c in allc if c.get("is_runner") and thesis.event_ts(c) >= start)
+    quarantine = {"count": len(fakes), "pct": round(len(fakes) / runners_all * 100, 1) if runners_all else 0,
+                  "by_theme": sorted(by_theme.items(), key=lambda kv: -kv[1])[:6],
+                  "top": [{"mint": c["mint"], "symbol": c.get("symbol"), "name": c.get("name"), "ath": c.get("ath_mcap")} for c in fakes[:5]]}
     hmap = {r["theme"]: r for r in h["themes"]}
     rows = [{**r, "h_runners": hmap[r["theme"]]["runners"], "h_share": hmap[r["theme"]]["share"],
              "h_momentum": hmap[r["theme"]]["momentum"]} for r in d["themes"]]
     return {"tf": tf, "tail_s": int(tail_h * 3600), "daily": {k: v for k, v in d.items() if k != "themes"},
-            "hourly_leader": h["leader"], "themes": rows}
+            "hourly_leader": h["leader"], "themes": rows, "quarantine": quarantine}
 
 
 def rows(sql, args=()):
@@ -240,7 +255,9 @@ def coins_list(tf: str = "7D", theme: str | None = None, catalyst: str | None = 
     if catalyst:
         where.append("primary_catalyst = ?")
         args.append(catalyst)
-    if real in ("true", "false"):
+    if real == "notfake":  # REAL + still analyzing (what the narrative web shows)
+        where.append("(is_real IS NULL OR is_real=1)")
+    elif real in ("true", "false"):
         where.append("is_real = ?")
         args.append(1 if real == "true" else 0)
     elif real == "pending":
