@@ -225,6 +225,41 @@ insiders, bundles, fresh wallets, image reuse...) is listed as "not measured", n
 API: `/api/sniper`, `POST /api/sniper/settings|filters|reset`, `POST /api/sniper/handoff/<id>/done|skip`. UI: `web/desk.js`
 (own view, SCOPE | SNIPER DESK switch in the top bar; SIGNAL CORE vortex canvas, evidence matrix, risk gauge).
 
+### SPEED (measured, end to end)
+`core/perf.py`: per-coin stopwatch `mark(mint, stage)` for launch -> ws (PumpPortal) -> db (first upsert) -> scored -> gated -> filled,
+plus timers (`perf.timer`, every `AgentRun` stage, sniper tick parts, API routes via middleware). `/api/perf` -> SPEED card (desk).
+- PumpPortal launches are flushed to the DB every second (`pumpportal._flusher`) and wake the sniper (`sniper.wake`); before they
+  waited for the next scan (up to `scan_every_min`). Fresh candidates are subscribed to the PumpPortal TRADE stream
+  (`pumpportal.watch` -> `BOOK`: price, buys/sells, volume, unique traders, early buyers); `sniper.prices()` uses the book first,
+  DexScreener (parallel chunks) for the rest. Trade messages (txType buy/sell) are never mistaken for migrations.
+- `core/fastgate.py`: deal-breakers from memory before any price lookup (blacklisted dev, fake-factory dev, flagged fake; post-price:
+  >=3 blacklisted early buyers). `devstats` / blacklist / KOL wallets precomputed every 5 min in the background.
+- `core/rpc.py`: Solana RPC with failover (Helius first, `rpc.backups`), latency EWMA, slow/erroring endpoints benched `rpc.bench_s`.
+- Indexes on `json_extract(data,'$.creator')` / `'$.dev_wallet'` (dev queries use `(dev_wallet IN .. OR creator IN ..)`), kol_trades(wallet, mint).
+- AI never on the scan / trading path: why-it-ran bullets are queued and written in a background thread (`pipeline._write_whys`).
+- Deep enrichment runs each agent's sources in parallel threads.
+
+### ALWAYS LEARNING (`core/learning.py`, worker every 5 min, LEARNING card on the desk, `/api/learning`)
+- OUTCOMES: the sniper records every coin's first decision (exact evidence, conf, shadow conf, dev, early buyers) in `outcomes`;
+  `resolve()` fills h1 / h24 / d7 (x now, x peak) and labels ran / rugged / fake / died / flat (demo: simulated future, testable).
+- SCORER: `retrain()` = logistic regression on labeled outcomes -> positive coefficients become the sniper's evidence WEIGHTS (same
+  0-1 confidence scale, same gate). New versions start in SHADOW (`scorer_versions`), scoring the same coins; `judge()` promotes only on
+  AUC +`promote_auc_gain` and no worse hit rate above the gate. Versions kept; `rollback()`.
+- GUARD: live hit rate falls `drift_drop` below its reference -> roll back + PAUSE the sniper + alert (toast / Discord); meta shift
+  (here or the thesis META SHIFT) -> retrain + alert. Risk limits are never touched: size, max open, stop-loss, time stop, gate,
+  starting balance; it can pause but never resume.
+- LISTS: rugs / fakes blacklist their dev (`fastgate.add`) and wallets early in 2+ scams; early buyers in 3+ runners at >=35% become
+  SMART wallets (count as KOL evidence), dropped under 12% recent hit rate; devs with 2+ REAL runners and no fakes are auto-tracked
+  (your devs.json is never edited). `missed()` tests which single evidence threshold would have caught missed runners.
+- Every automatic change -> `changes` table (change log). `core/recap.py`: weekly recap (learned, changed, wins/misses, wallets,
+  speed vs last week, next) -> `recaps`, the desk's WEEKLY RECAP button, your Discord webhook.
+
+### KOL per-coin full history
+`kol_research.complete_coins()` (each research run, `coin_history_per_run` 40): for coins with sells but no earlier buy (bought
+before the loaded wallet history), held coins, then the biggest, it lists every signature on the wallet's TOKEN ACCOUNT for that
+coin (`kol_trades.tacct`, learned from stored trades) and stores the missing trades -> the coin's PnL is complete even when the
+wallet's overall history isn't loaded that far back.
+
 ### LIVE READINESS (both bots)
 `sniper.readiness()` and `devlab.readiness()` score 0.0-100 whether a paper record is good enough to risk money: weighted parts
 (sample, edge, profit factor / lift vs chance, drawdown, recent form, time) then hard caps (demo data 15, thin record 35,

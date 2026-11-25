@@ -106,16 +106,44 @@ def prices(coins: list[dict]) -> dict[str, dict]:
             full = c if c.get("_candidate") else (db.get_coin(c["mint"]) or {})
             base = min(full.get("usd_market_cap") or full.get("ath_mcap") or 30_000, 60_000)
             m = _demo_mcap(c["mint"], base, now)
+            r = random.Random(c["mint"])
+            up = _demo_mcap(c["mint"], base, now + 3 * 3600) > m * 1.5  # demo: smart wallets tend to be early in winners
+            early = [f"SMART{r.randint(0, 9)}" for _ in range(r.randint(2, 5) if up else (1 if r.random() < 0.15 else 0))] + \
+                    [f"CROWD{r.randint(0, 400)}" for _ in range(r.randint(5, 15))]
             out[c["mint"]] = {"mcap": m, "liq": base * 0.2, "pair": full.get("pair_address"), "vol": m * 0.6,
-                              "txns": int(m / 150), "buys": int(m / 260), "sells": int(m / 360), "dex": full.get("dex_id")}
+                              "txns": int(m / 150), "buys": int(m / 260), "sells": int(m / 360), "dex": full.get("dex_id"), "early": early}
         return out
-    mints = [c["mint"] for c in coins]
-    for i in range(0, len(mints), 30):
+    # 1) the live trade stream (pushed, no polling) for coins we watch
+    try:
+        from sources import pumpportal
+        book = pumpportal.BOOK
+    except Exception:
+        book = {}
+    sol = _sol_usd()
+    for c in coins:
+        b = book.get(c["mint"])
+        if b and b.get("mcap_sol") and time.time() - b.get("last_ts", 0) < 600:
+            out[c["mint"]] = {"mcap": b["mcap_sol"] * sol, "liq": (b.get("liq_sol") or 0) * sol, "pair": None,
+                              "vol": b["vol_sol"] * sol, "txns": b["buys"] + b["sells"], "buys": b["buys"], "sells": b["sells"],
+                              "traders": len(b["traders"]), "dex": "pumpfun", "src": "stream", "early": list(b["early"])}
+    # 2) DexScreener for the rest, chunks in parallel; cached 20s per coin so 1-second wake-ups never hit its rate limit
+    now = time.time()
+    for c in coins:
+        hit = _PX_CACHE.get(c["mint"])
+        if c["mint"] not in out and hit and now - hit[0] < 20:
+            out[c["mint"]] = hit[1]
+    mints = [c["mint"] for c in coins if c["mint"] not in out]
+    chunks = [mints[i:i + 30] for i in range(0, len(mints), 30)]
+
+    def fetch(ch):
         try:
-            pairs = http.get("https://api.dexscreener.com/tokens/v1/solana/" + ",".join(mints[i:i + 30]),
-                             rate_key="dexscreener", per_min=55, retries=1)
+            return http.get("https://api.dexscreener.com/tokens/v1/solana/" + ",".join(ch), rate_key="dexscreener", per_min=55, retries=1)
         except Exception:
-            continue
+            return []
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(4, max(1, len(chunks)))) as ex:
+        results = list(ex.map(fetch, chunks)) if chunks else []
+    for pairs in results:
         for p in pairs if isinstance(pairs, list) else []:
             m = (p.get("baseToken") or {}).get("address")
             liq = (p.get("liquidity") or {}).get("usd") or 0
@@ -124,7 +152,24 @@ def prices(coins: list[dict]) -> dict[str, dict]:
                 out[m] = {"mcap": p.get("marketCap") or p.get("fdv"), "liq": liq, "pair": p.get("pairAddress"),
                           "vol": (p.get("volume") or {}).get("h24"), "txns": (tx.get("buys") or 0) + (tx.get("sells") or 0),
                           "buys": tx.get("buys"), "sells": tx.get("sells"), "dex": p.get("dexId")}
+    for m in mints:
+        if m in out:
+            _PX_CACHE[m] = (now, out[m])
+    if len(_PX_CACHE) > 5000:
+        for k in sorted(_PX_CACHE, key=lambda k: _PX_CACHE[k][0])[:2000]:
+            _PX_CACHE.pop(k, None)
     return {m: v for m, v in out.items() if v.get("mcap")}
+
+
+_SOL = {"v": 150.0, "ts": 0.0}
+_PX_CACHE: dict = {}  # mint -> (ts, price dict) from DexScreener
+
+
+def _sol_usd() -> float:
+    """SOL price, cached in memory for a minute (no DB read per coin)."""
+    if time.time() - _SOL["ts"] > 60:
+        _SOL.update(v=float(get_db().kv_get("sol_usd") or 150), ts=time.time())
+    return _SOL["v"]
 
 
 def _record_ticks(px: dict):
@@ -161,7 +206,19 @@ def candidates(c: dict) -> list[dict]:
         s += 1 if x.get("primary_catalyst") not in (None, "meme") else 0
         s += 1 if (x.get("holders") or 0) > 100 else 0
         return s
-    pool = [x for x in rows if x["mint"] not in held and x.get("is_real") is not False]
+    from core import fastgate
+    fastgate.ensure_fresh()
+    pool, blocked = [], {}
+    for x in rows:  # FAST GATE: deal-breakers from memory, before any price lookup
+        if x["mint"] in held:
+            continue
+        ok, why = fastgate.check(x)
+        if ok:
+            pool.append(x)
+        else:
+            k = why.split(" (")[0]
+            blocked[k] = blocked.get(k, 0) + 1
+    _board["fastgate_blocked"] = blocked
     pool.sort(key=lambda x: (-pre(x), -(x.get("created_ts") or 0)))
     pool = pool[:90]
     for x in pool:
@@ -198,14 +255,38 @@ def evidence(x: dict, px: dict) -> dict:
         "FLOW": flow,
         "MOMENTUM": mom,
         "CATALYST": min(1.0, cat / 85) if cat else (0.15 if x.get("catalysts") else None),
-        "KOLS": min(1.0, len(x["kols"]) / 2) if x.get("kols") else None,
-        "DEV": 1.0 if x.get("_tracked_dev") else (min(1.0, x["dev_migrations"] / x["dev_launches"] * 4) if x.get("dev_launches") else None),
-        "HOLDERS": min(1.0, x["holders"] / max(30, age_min * 6)) if x.get("holders") else None,
+        "KOLS": _kols_score(x, px),
+        "DEV": 1.0 if x.get("_tracked_dev") else _dev_score(x),
+        "HOLDERS": min(1.0, x["holders"] / max(30, age_min * 6)) if x.get("holders")
+                   else (min(1.0, px["traders"] / max(15, age_min * 4)) if px.get("traders") else None),  # live unique traders
         "LIQUIDITY": min(1.0, (px.get("liq") or 0) / max(1, px["mcap"]) * 4) if px.get("liq") else None,
         "SOCIAL": min(1.0, ((1 if tw else 0) + (0.5 if x.get("website") else 0) + (x.get("x_mentions") or 0) / 20) / 1.5),
         "CHECKS": {True: 1.0, False: 0.0}.get(x.get("is_real")),
     }
     return {k: (round(v, 2) if v is not None else None) for k, v in ev.items()}
+
+
+def _kols_score(x: dict, px: dict) -> float | None:
+    """Tracked KOL buys + SMART wallets (learned: early in past runners) among the coin's early buyers."""
+    n = len(x.get("kols") or [])
+    try:
+        from core import learning
+        smart = learning.smart_set()
+        n += sum(1 for w in (px.get("early") or []) if w in smart)
+    except Exception:
+        pass
+    return min(1.0, n / 2) if n else None
+
+
+def _dev_score(x: dict) -> float | None:
+    """Precomputed dev record (core/fastgate, in memory): runners and REAL runners per launch."""
+    from core import fastgate
+    st = fastgate.devstats(x.get("creator") or x.get("dev_wallet"))
+    if st and st["launches"] >= 2:
+        return round(min(1.0, (st["real"] * 1.0 + st["runners"] * 0.5) / st["launches"] * 6), 2)
+    if x.get("dev_launches"):
+        return min(1.0, (x.get("dev_migrations") or 0) / x["dev_launches"] * 4)
+    return None
 
 
 _RULES = []
@@ -219,6 +300,13 @@ def _rules():
 
 
 def confidence(ev: dict) -> float:
+    """Weighted mean of the measured evidence with the LIVE scorer version's weights (core/learning.py)."""
+    try:
+        from core import learning
+        lw, _, _, _ = learning.active_weights()
+        return learning.weighted_conf(ev, lw, MIN_MEASURED_WEIGHT)
+    except Exception:
+        pass
     measured = {k: v for k, v in ev.items() if v is not None}
     w = sum(WEIGHTS[k] for k in measured)
     if not w:
@@ -354,14 +442,22 @@ def _tick():
     ensure_tables()
     t0 = time.monotonic()
     db = get_db()
+    from core import perf
     open_pos = [dict(r) for r in db.q("SELECT * FROM sniper_positions WHERE status IN ('open','handoff')")]
-    cands = candidates(c)
+    with perf.timer("sniper:watcher · candidates"):
+        cands = candidates(c)
     emit("WATCHER", f"scanning {len(cands)} fresh launches · {len(open_pos)} open", "info", len(cands))
-    px = prices(cands + open_pos)
+    try:  # stream live trades for fresh candidates + open positions (PumpPortal), instead of polling them
+        from sources import pumpportal
+        pumpportal.watch([x["mint"] for x in cands[:300]] + [p["mint"] for p in open_pos])
+    except Exception:
+        pass
+    with perf.timer("sniper:watcher · prices"):
+        px = prices(cands + open_pos)
     _record_ticks({m: v for m, v in px.items()})
     with db._lock:
         manage(c, open_pos, px)
-    from core import axiom_filters
+    from core import axiom_filters, fastgate
     filt = axiom_filters.load()
     scored, rejects = [], {}
     for x in cands:
@@ -376,10 +472,25 @@ def _tick():
         if not (c["entry_min_mcap"] <= q["mcap"] <= c["entry_max_mcap"]):
             rejects["entry band"] = rejects.get("entry band", 0) + 1
             continue
-        ev = evidence(x, q)
+        bl = sum(1 for w in (q.get("early") or []) if fastgate.is_blacklisted(w))
+        if bl >= 3:  # FAST GATE (post-price): known scam wallets among the first buyers
+            rejects["scam early buyers"] = rejects.get("scam early buyers", 0) + 1
+            continue
+        with perf.timer("sniper:analyst · evidence"):
+            ev = evidence(x, q)
+        perf.mark(x["mint"], "scored")
         scored.append({"mint": x["mint"], "symbol": x.get("symbol"), "name": x.get("name"), "image": x.get("image"),
                        "mcap": q["mcap"], "liq": q.get("liq"), "pair": q.get("pair"), "ev": ev, "conf": confidence(ev),
                        "age_min": round((time.time() - (x.get("created_ts") or time.time())) / 60), "_x": x, "_px": q})
+    try:  # LEARNING: record what we saw (first decision per coin) + the shadow version's score
+        from core import learning
+        _, lvn, sw, svn = learning.active_weights()
+        for s in scored:
+            sc = learning.weighted_conf(s["ev"], sw, MIN_MEASURED_WEIGHT) if sw else None
+            learning.record(s["mint"], s["symbol"], s["ev"], s["conf"], sc, s["mcap"], False, False, lvn, svn,
+                            s["_x"].get("creator") or s["_x"].get("dev_wallet"), s["_px"].get("early"))
+    except Exception as e:
+        log("SCOUT", f"learning record: {e}", "warn")
     scored.sort(key=lambda s: -s["conf"])
     if filt:
         top_r = ", ".join(f"{k} {v}" for k, v in sorted(rejects.items(), key=lambda kv: -kv[1])[:3])
@@ -390,6 +501,7 @@ def _tick():
     n_open = sum(1 for p in open_pos if p["status"] in ("open", "handoff") and p["remaining"] > 1e-6)
     for s in scored[:3]:
         _board["gate_checks"] += 1
+        perf.mark(s["mint"], "gated")
         if s["conf"] < c["gate"]:
             emit("RISK", f"HOLD ${s['symbol']} · gate {s['conf']:.2f} < {c['gate']:.2f}", "hold", s["conf"])
             continue
@@ -404,6 +516,12 @@ def _tick():
         _board["gate_pass"] += 1
         emit("RISK", f"PASS ${s['symbol']} · {s['conf']:.2f} ≥ {c['gate']:.2f} · limits ok", "pass", s["conf"])
         pid = open_position(c, s["_x"], s["_px"], s["ev"], s["conf"])
+        perf.mark(s["mint"], "filled")
+        try:
+            from core import learning
+            learning.record(s["mint"], s["symbol"], s["ev"], s["conf"], None, s["mcap"], True, True, 0, None, None, None)
+        except Exception:
+            pass
         n_open += 1
         if c["mode"] == "dryflip":
             emit("HUMAN", f"HANDOFF #{pid} ${s['symbol']} · buy {c['size_sol']} SOL in DryFlip · TP {c['tp1_x']}x / SL -{c['stop_loss_pct']}%",
@@ -413,6 +531,7 @@ def _tick():
         _draft("buy", s["_x"], {"mcap": s["mcap"], "why": _why(s["_x"], s["ev"]), "conf": s["conf"]}, f"snipe:{pid}")
         emit("REPORTER", f"position #{pid} ${s['symbol']} · evidence {_why(s['_x'], s['ev'])}", "info")
     ms = (time.monotonic() - t0) * 1000
+    perf.record("sniper:tick · total", ms / 1000)
     with _lock:
         _board.update(candidates=[{k: v for k, v in s.items() if not k.startswith("_")} for s in scored[:8]],
                       focus={k: v for k, v in scored[0].items() if not k.startswith("_")} if scored else None)
@@ -421,6 +540,12 @@ def _tick():
 
 
 _started = [False]
+_wake = threading.Event()
+
+
+def wake():
+    """A new launch landed: tick now instead of waiting for the next interval."""
+    _wake.set()
 
 
 def start_worker():
@@ -436,7 +561,15 @@ def start_worker():
             except Exception as e:
                 log("SCOUT", f"sniper: {e}", "warn")
                 emit("REPORTER", f"tick failed: {e}", "warn")
-            time.sleep(max(5, conf()["tick_s"]))
+            _wake.wait(timeout=max(5, conf()["tick_s"]))
+            if _wake.is_set():
+                _wake.clear()
+                time.sleep(1.0)  # debounce: a burst of launches = one tick
+    try:
+        from sources import pumpportal
+        pumpportal.on_launch(wake)
+    except Exception:
+        pass
     t = threading.Thread(target=loop, daemon=True, name="sniper")
     t.start()
     return t
@@ -470,6 +603,7 @@ def state(after: int = 0) -> dict:
         pnl_hist.append([r["closed_ts"], round(run, 4)])
     return {
         "readiness": readiness(closed, c["start_balance_sol"]),
+        "fastgate": {**__import__("core.fastgate", fromlist=["stats"]).stats(), "blocked_last_tick": _board.get("fastgate_blocked", {})},
         "filters": __import__("core.axiom_filters", fromlist=["summary"]).summary(__import__("core.axiom_filters", fromlist=["load"]).load()),
         "settings": c, "operators": ops, "log": logs[-120:], "candidates": _board["candidates"], "focus": _board["focus"],
         "evidence_keys": EVIDENCE, "positions": open_, "closed": closed[:40], "pnl_series": pnl_hist,

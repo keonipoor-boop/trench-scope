@@ -111,11 +111,14 @@ def ensure_trade_tables():
     db.x("""CREATE TABLE IF NOT EXISTS kol_trades (wallet TEXT, sig TEXT, ts INTEGER, mint TEXT, side TEXT, tokens REAL,
             sol REAL, usd REAL, PRIMARY KEY (wallet, sig))""")
     db.x("CREATE INDEX IF NOT EXISTS ix_kol_trades_w ON kol_trades(wallet, ts)")
+    db.x("CREATE INDEX IF NOT EXISTS ix_kol_trades_wm ON kol_trades(wallet, mint)")
     db.x("""CREATE TABLE IF NOT EXISTS kol_sync (wallet TEXT PRIMARY KEY, oldest_sig TEXT, done INTEGER DEFAULT 0,
             source TEXT, updated_ts INTEGER)""")
     cols = {r["name"] for r in db.q("PRAGMA table_info(kol_trades)")}
     if "peer" not in cols:
         db.x("ALTER TABLE kol_trades ADD COLUMN peer TEXT")
+    if "tacct" not in cols:  # the wallet's token account for the coin: its own history = the coin's full trade history
+        db.x("ALTER TABLE kol_trades ADD COLUMN tacct TEXT")
     db.x("CREATE TABLE IF NOT EXISTS tok_info (mint TEXT PRIMARY KEY, data TEXT, ts INTEGER, price_ts INTEGER)")
     if (db.kv_get("kol_parser_version") or 1) < PARSER_VERSION:  # histories parsed the old way: re-sync from scratch
         db.x("DELETE FROM kol_trades")
@@ -131,8 +134,8 @@ def _store(wallet: str, trades: list[dict]) -> int:
         for t in trades:
             if not t.get("sig"):
                 continue
-            cur = db.conn.execute("INSERT OR IGNORE INTO kol_trades(wallet,sig,ts,mint,side,tokens,sol,usd,peer) VALUES(?,?,?,?,?,?,?,?,?)",
-                                  (wallet, t["sig"], t.get("ts"), t["mint"], t["side"], t["tokens"], t["sol"], t["usd"], t.get("peer")))
+            cur = db.conn.execute("INSERT OR IGNORE INTO kol_trades(wallet,sig,ts,mint,side,tokens,sol,usd,peer,tacct) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                                  (wallet, t["sig"], t.get("ts"), t["mint"], t["side"], t["tokens"], t["sol"], t["usd"], t.get("peer"), t.get("tacct")))
             n += cur.rowcount
         db.conn.commit()
     return n
@@ -225,6 +228,11 @@ def _parse_enhanced(t: dict, wallet: str) -> dict | None:
             except (TypeError, ValueError):
                 continue
     tr = _to_trade(deltas, sol, t.get("timestamp"), t.get("signature"))
+    if tr:
+        for a in t.get("accountData") or []:
+            for tb in a.get("tokenBalanceChanges") or []:
+                if tb.get("userAccount") == wallet and tb.get("mint") == tr["mint"] and tb.get("tokenAccount"):
+                    tr["tacct"] = tb["tokenAccount"]
     if tr and tr["side"].startswith("xfer"):  # who the tokens went to / came from (own wallet or not)
         for x in t.get("tokenTransfers") or []:
             if x.get("mint") != tr["mint"]:
@@ -333,6 +341,101 @@ def coverage(wallet: str, trades: list[dict], src: str) -> dict:
             "complete": src == "demo" or bool(st.get("done"))}
 
 
+# ---------------------------------------------------------------- per-coin full history
+def _helius_parse(sigs: list[str]) -> list[dict]:
+    from sources.helius import api_url
+    out = []
+    for i in range(0, len(sigs), 100):
+        try:
+            r = http.post(api_url("/transactions"), json={"transactions": sigs[i:i + 100]}, rate_key="helius_kol", per_min=120, retries=2)
+            out += r if isinstance(r, list) else []
+        except Exception:
+            continue
+    return out
+
+
+def _token_accounts(wallet: str, mint: str) -> set[str]:
+    """The wallet's token account(s) for a coin. Known from stored trades; older trades (stored before this field
+    existed) are re-read once from Helius to learn it."""
+    db = get_db()
+    rows = db.q("SELECT sig, tacct FROM kol_trades WHERE wallet=? AND mint=? ORDER BY ts DESC LIMIT 20", (wallet, mint))
+    accts = {r["tacct"] for r in rows if r["tacct"]}
+    if not accts and rows:
+        for t in _helius_parse([rows[0]["sig"]]):
+            tr = _parse_enhanced(t, wallet)
+            if tr and tr.get("tacct"):
+                accts.add(tr["tacct"])
+                db.x("UPDATE kol_trades SET tacct=? WHERE wallet=? AND mint=?", (tr["tacct"], wallet, mint))
+    return accts
+
+
+def coin_history(wallet: str, mint: str, max_pages: int = 10) -> int:
+    """Pull EVERY transaction on the wallet's token account for this coin (back to the first buy), so the coin's PnL
+    is complete even when the wallet's overall history isn't loaded that far back. Returns new trades stored."""
+    from sources.helius import rpc_url
+    db = get_db()
+    have = {r["sig"] for r in db.q("SELECT sig FROM kol_trades WHERE wallet=? AND mint=?", (wallet, mint))}
+    new_sigs = []
+    for acct in _token_accounts(wallet, mint):
+        before = None
+        for _ in range(max_pages):
+            params = {"limit": 1000, **({"before": before} if before else {})}
+            try:
+                from core import rpc
+                r = rpc.call("getSignaturesForAddress", [acct, params])  # fastest healthy RPC, fails over
+            except Exception:
+                break
+            page = (r or {}).get("result") or []
+            new_sigs += [x["signature"] for x in page if not x.get("err") and x["signature"] not in have]
+            if len(page) < 1000:
+                break
+            before = page[-1]["signature"]
+    new_sigs = list(dict.fromkeys(new_sigs))
+    trades = [tr for tr in (_parse_enhanced(t, wallet) for t in _helius_parse(new_sigs)) if tr]
+    n = _store(wallet, trades) if trades else 0
+    db.kv_set(f"coinhist:{wallet}:{mint}", {"ts": int(time.time()), "added": n})
+    return n
+
+
+def complete_coins(wallet: str, budget: int | None = None) -> dict:
+    """Which coins need their full history: sells with no buy before them (bought before the loaded history),
+    then coins still held, then the biggest trades. Each coin is done once (re-checked weekly)."""
+    db = get_db()
+    budget = budget or _conf().get("coin_history_per_run", 40)
+    trades = _stored(wallet)
+    by = defaultdict(list)
+    for t in trades:
+        by[t["mint"]].append(t)
+    pri = []
+    for m, ts in by.items():
+        ts.sort(key=lambda t: t.get("ts") or 0)
+        qty, unpriced, vol = 0.0, False, 0.0
+        for t in ts:
+            if t["side"] in ("buy", "xfer_in"):
+                qty += t["tokens"] or 0
+            elif t["side"] == "sell":
+                if qty <= 1e-9:
+                    unpriced = True
+                qty -= t["tokens"] or 0
+            vol += abs(t.get("sol") or 0)
+        held = qty > 1e-6
+        done = db.kv_get(f"coinhist:{wallet}:{m}")
+        if done and time.time() - done["ts"] < 7 * 86400 and not (unpriced and done.get("added", 0) == 0 and time.time() - done["ts"] > 86400):
+            continue
+        if unpriced or held or vol > 0:
+            pri.append((0 if unpriced else 1 if held else 2, -vol, m))
+    pri.sort()
+    added = 0
+    for _, _, m in pri[:budget]:
+        try:
+            added += coin_history(wallet, m)
+        except Exception as e:
+            log("KOLS", f"coin history {m[:6]}: {e}", "warn")
+    if added:
+        log("KOLS", f"{wallet[:6]}: completed {min(budget, len(pri))} coins' full history (+{added} trades)")
+    return {"checked": min(budget, len(pri)), "added": added, "remaining": max(0, len(pri) - budget)}
+
+
 def fetch_trades(wallet: str) -> tuple[list[dict], str, dict]:
     """All known swaps for a wallet: synced into the local trade store, then read back in full."""
     cfg = get_config()
@@ -343,6 +446,10 @@ def fetch_trades(wallet: str) -> tuple[list[dict], str, dict]:
     try:
         if env("HELIUS_API_KEY"):
             _helius_sync(wallet)
+            try:  # per-coin full history: fixes PnL for coins bought before the loaded wallet history
+                complete_coins(wallet)
+            except Exception as e:
+                log("KOLS", f"coin history: {e}", "warn")
             src = "helius"
         else:
             _store(wallet, _rpc_trades(wallet))

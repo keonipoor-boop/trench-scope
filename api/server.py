@@ -23,6 +23,24 @@ from core.db import get_db
 
 WEB = ROOT / "web"
 app = FastAPI(title="Trench Scope")
+
+
+@app.middleware("http")
+async def _timing(request, call_next):  # SPEED: per-route latency
+    import re as _r
+    t0 = time.perf_counter()
+    resp = await call_next(request)
+    p = request.url.path
+    if p.startswith("/api/") and not p.startswith(("/api/img", "/api/pfp", "/api/srcicon")):
+        from core import perf
+        perf.record("api:" + _r.sub(r"/[A-Za-z0-9]{25,}", "/<id>", p), time.perf_counter() - t0)
+    return resp
+
+
+@app.get("/api/perf")
+def perf_get():
+    from core import fastgate, perf, rpc
+    return {**perf.snapshot(), "rpc": rpc.status(), "fastgate": fastgate.stats()}
 from api.images import router as _images  # noqa: E402  (coin pictures, KOL pfps, source logos)
 app.include_router(_images)
 _job_lock = threading.Lock()
@@ -458,6 +476,35 @@ def drafts_status(did: int, status: str, req: Request):
     from core import drafts
     drafts.set_status(did, status)
     return {"ok": True}
+
+
+# ---- ALWAYS LEARNING ---------------------------------------------------------------------------
+@app.get("/api/learning")
+def learning_get():
+    from core import learning
+    return learning.summary()
+
+
+@app.get("/api/recap")
+def recap_get():
+    from core import recap
+    return recap.latest() or {}
+
+
+@app.post("/api/learning/{action}")
+def learning_act(action: str, req: Request, version: int | None = None):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import learning, recap
+    if action == "retrain":
+        return learning.retrain("manual") or {"skipped": "not enough labeled outcomes yet"}
+    if action == "rollback":
+        return learning.rollback(version, "manual") or {"skipped": "nothing to roll back to"}
+    if action == "judge":
+        return learning.judge() or {}
+    if action == "recap":
+        return recap.generate(force=True)
+    raise HTTPException(400, "retrain | rollback | judge | recap")
 
 
 # ---- SNIPER DESK (paper trading) ---------------------------------------------------------

@@ -216,6 +216,7 @@ def generate(max_parents: int = 12) -> int:
                  "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (ts, p["mint"], p.get("symbol"), p.get("name"), i["name"], i["ticker"], i["keyword"],
                                                           i["pitch"], i["by"], json.dumps(o), None, None, json.dumps(kit(i, p)), source))
             made += 1
+    invalidate()
     if made:
         log("CATALYST", f"DEV LAB: {made} narrative ideas from {min(len(todo), max_parents)} narratives (runners + new pairs)")
     return made
@@ -325,8 +326,8 @@ def dev_metas(days: float = 3) -> list[dict]:
         coins = []
         if t["wallets"]:
             q = ",".join("?" * len(t["wallets"]))
-            coins = db.coins(f"COALESCE(json_extract(data,'$.dev_wallet'), json_extract(data,'$.creator')) IN ({q}) AND created_ts >= ?",
-                             (*t["wallets"], since), order="created_ts DESC", limit=200)
+            coins = db.coins(f"(json_extract(data,'$.dev_wallet') IN ({q}) OR json_extract(data,'$.creator') IN ({q})) AND created_ts >= ?",
+                             (*t["wallets"], *t["wallets"], since), order="created_ts DESC", limit=200)
         wc, th = Counter(), Counter()
         for c in coins:
             wc.update(set(words(c.get("name"))))
@@ -346,7 +347,23 @@ def _tracked_wallets() -> set:
     return {w for t in devs.tracked() for w in t["wallets"]}
 
 
+_STATE_CACHE = {"ts": 0.0, "v": None}
+
+
 def state() -> dict:
+    """Cached 10s: the lab's data changes every 10 minutes (and on 'new ideas')."""
+    if _STATE_CACHE["v"] is not None and time.time() - _STATE_CACHE["ts"] < 10:
+        return _STATE_CACHE["v"]
+    v = _state()
+    _STATE_CACHE.update(ts=time.time(), v=v)
+    return v
+
+
+def invalidate():
+    _STATE_CACHE["ts"] = 0
+
+
+def _state() -> dict:
     ensure_table()
     db, now = get_db(), time.time()
     runner_ath = get_config().get_path("pipeline.runner_ath_usd", 100_000)

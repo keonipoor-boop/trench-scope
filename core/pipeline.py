@@ -69,6 +69,25 @@ def template_why(c: dict) -> list[str]:
     return out[:3]
 
 
+_why_queue: list = []
+
+
+def _write_whys():
+    """Background: Claude's why-it-ran bullets for the runners the scan queued (never on the scan / trading path)."""
+    db = get_db()
+    while _why_queue:
+        m = _why_queue.pop(0)
+        c = db.get_coin(m)
+        if not c:
+            continue
+        try:
+            b = llm.why_bullets(c)
+        except Exception:
+            b = None
+        if b:
+            db.upsert_coin({"mint": m, "why_llm": b, "why_llm_cat": c.get("primary_catalyst"), "why": b})
+
+
 def scan(backfill_days: float | None = None) -> dict:
     cfg = get_config()
     db = get_db()
@@ -213,10 +232,8 @@ def scan(backfill_days: float | None = None) -> dict:
                     c["why_template"] = template_why(c)
                     # Claude re-writes the why when the catalyst changes (e.g. its socials revealed holder rewards)
                     if final and llm_budget[0] and c.get("deep_ts") and (not c.get("why_llm") or c.get("why_llm_cat") != c["primary_catalyst"]):
-                        b = llm.why_bullets(c)
                         llm_budget[0] -= 1
-                        if b:
-                            c["why_llm"], c["why_llm_cat"] = b, c["primary_catalyst"]
+                        _why_queue.append(c["mint"])  # written in the background: AI never blocks a scan
                     c["why"] = c.get("why_llm") or c["why_template"]
                 except Exception as e:  # one bad coin never blocks the rest
                     log("CATALYST", f"{c.get('symbol')}: {e}", "warn")
@@ -236,22 +253,32 @@ def scan(backfill_days: float | None = None) -> dict:
     for s in sources:
         if s.stage == "expensive" and s.can_enrich():
             by_agent[s.agent].append(s)
-    for agent, srcs in by_agent.items():
-        if not deep:
-            break
+    def _deep_agent(agent, srcs):  # one agent's sources, in order (they may build on each other)
         with AgentRun(agent, f"deep enrichment on {len(deep)} runners") as run:
+            results = []
             for s in srcs:
                 try:
-                    _apply(deep, s.enrich(list(deep.values())))
+                    results.append(s.enrich(list(deep.values())))
                 except Exception as e:
                     log(agent, f"{s.name}.enrich failed: {e}", "error")
             run.result = f"{', '.join(s.name for s in srcs)} -> {len(deep)} runners"
             log(agent, run.result)
+            return results
+    if deep and by_agent:  # agents are independent: HOLDERS, FEES, KOLS, CATALYST run at the same time
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=len(by_agent)) as ex:
+            futs = [ex.submit(_deep_agent, a, srcs) for a, srcs in by_agent.items()]
+            for f in futs:
+                for upd in f.result() or []:
+                    _apply(deep, upd)
     for c in deep.values():
         c["deep_ts"] = now
     stats["deep"] = len(deep)
 
     analyze(final=True)
+    if _why_queue:
+        import threading as _th
+        _th.Thread(target=_write_whys, daemon=True, name="why-writer").start()
     try:  # X DRAFTS: a fresh REAL runner -> a tweet draft + notification (you post it)
         from core import drafts
         drafts.on_runners(list(runners.values()))

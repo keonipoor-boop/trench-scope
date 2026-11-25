@@ -52,6 +52,8 @@
           <div class="dk-card dk-logc"><div class="dk-h">LIVE LOG <span class="dk-tabs small" id="dk-logtabs"></span></div><div id="dk-log" class="dk-log"></div></div>
         </div>
         <div class="dk-col">
+          <div class="dk-card dk-learn"><div class="dk-h">ALWAYS LEARNING <i>scores itself on what happened</i><em id="dk-lv"></em></div><div id="dk-learn"></div></div>
+          <div class="dk-card dk-speed"><div class="dk-h">SPEED <i>launch → decision, measured</i><em id="dk-spd"></em></div><div id="dk-speed"></div></div>
           <div class="dk-card dk-ready"><div class="dk-h">LIVE READINESS <i>is the paper record good enough to risk money?</i></div><div id="dk-ready"></div></div>
           <div class="dk-card dk-dry" id="dk-drycard"><div class="dk-h">DRYFLIP HANDOFF QUEUE <em id="dk-dn"></em></div><div id="dk-dry"></div></div>
           <div class="dk-card"><div class="dk-h">EVIDENCE MATRIX <i>top candidates × evidence</i></div><div id="dk-matrix"></div></div>
@@ -60,6 +62,8 @@
         </div>
       </section>
       <footer class="dk-foot" id="dk-foot"></footer>
+      <dialog id="dk-recap"><form method="dialog"><h3>◆ WEEKLY RECAP</h3><pre id="dk-recap-text" class="dk-recap"></pre>
+        <div class="set-actions"><button value="cancel">CLOSE</button><button id="dk-recap-new" value="new">WRITE A NEW ONE NOW</button></div></form></dialog>
       <dialog id="dk-rules"><form method="dialog" id="dk-rules-form"><h3>◆ SNIPER RULES</h3><div class="dk-rgrid" id="dk-rgrid"></div>
         <label class="set-key">AXIOM FILTER PRESET <i class="dim" style="font-style:normal">paste the JSON Axiom exports (New Pairs) · leave as is to keep the current one · type <b>clear</b> to remove</i>
           <textarea name="axiom" rows="5" placeholder='{"filters": {"protocols": {...}, "age": {"max": 4, ...}}, "tab": "newPairs"}'></textarea></label>
@@ -247,6 +251,61 @@ book = Paper(start=${s.start_balance_sol} SOL, fee=${s.fee_pct}%, slip=${s.slipp
     $("#dk-code").innerHTML = C[D.codeTab];
   }
 
+  // ALWAYS LEARNING: versions, weights + why, outcomes, lists, alerts, change log (/api/learning)
+  async function pollLearn() {
+    let L; try { L = await j("/api/learning"); } catch { return; }
+    D.learn = L;
+    const lv = L.live, sh = L.shadow, w = lv.weights, mx = Math.max(...Object.values(w), 0.01);
+    const imp = Object.fromEntries(((lv.metrics || {}).importance || (sh && sh.metrics.importance) || []).map(i => [i.feature, i]));
+    $("#dk-lv").textContent = `v${lv.version} live` + (sh ? ` · v${sh.version} shadow` : "");
+    const lab = L.outcomes.labels || {}, col = { ran: "#7ee2a8", rugged: "#ff6b6b", fake: "#e85cf0", died: "#8a8a8a", flat: "#5e5e5e" };
+    const st = (sh && sh.metrics.shadow_test) || null;
+    $("#dk-learn").innerHTML = `
+      ${(L.alerts || []).slice(-2).reverse().map(a => `<div class="ln-alert">⚠ ${esc(a.msg)}</div>`).join("")}
+      <div class="ln-k">WHAT IT WEIGHTS MOST · and why (runner rate when the evidence is high vs low)</div>
+      ${Object.entries(w).sort((a, b) => b[1] - a[1]).map(([k, v]) => { const i = imp[k];
+        return `<div class="ln-w"><span>${k}</span><div><i style="width:${v / mx * 100}%"></i></div><b>${v.toFixed(2)}</b>
+          <em>${i && i.high_rate != null && i.low_rate != null ? `${Math.round(i.high_rate * 100)}% vs ${Math.round(i.low_rate * 100)}%` : ""}</em></div>`; }).join("")}
+      <div class="ln-k">OUTCOMES · ${L.outcomes.total.toLocaleString()} coins tracked at 1h / 24h / 7d</div>
+      <div class="ln-lab">${Object.entries(lab).map(([k, v]) => `<span style="--c:${col[k] || "#8a8a8a"}"><i></i>${k} <b>${v}</b></span>`).join("") || '<span>resolving…</span>'}</div>
+      ${sh ? `<div class="ln-k">SHADOW TEST · v${sh.version} vs v${lv.version}</div><div class="ln-t">${st ? `AUC ${st.auc_shadow} vs ${st.auc_live} · hit rate ${st.hit_shadow} vs ${st.hit_live} (${st.n} coins)`
+        : `trained on ${sh.metrics.trained_on} outcomes · scoring alongside live, promoted only if it does better`}</div>` : ""}
+      <div class="ln-k">LISTS</div><div class="ln-t">${L.smart.filter(x => x.status === "active").length} smart wallets / devs · ${L.blacklist.length} blacklisted</div>
+      ${(L.missed || []).length ? `<div class="ln-k">MISSED RUNNERS · a signal that would have caught them</div>` + L.missed.slice(0, 2).map(m => `<div class="ln-t">${esc(m.rule)} → caught ${m.caught}/${m.of_missed} at ${Math.round(m.precision * 100)}% precision</div>`).join("") : ""}
+      <div class="ln-k">CHANGE LOG</div>${L.changes.slice(0, 5).map(c => `<div class="ln-c"><span>${ago(c.ts)}</span><b>${esc(c.kind)}</b><em>${esc(c.summary)}</em></div>`).join("") || '<div class="ln-t">no automatic changes yet</div>'}
+      <div class="ln-lock">🔒 never changed by the bot: ${L.risk_limits_locked.join(" · ")}<br>⏻ kill switch: ${esc(L.kill_switch)}</div>
+      <div class="lb-act"><button class="dk-btn" id="ln-retrain">↻ RETRAIN NOW</button><button class="dk-btn" id="ln-rollback">⟲ ROLL BACK</button><button class="dk-btn pri" id="ln-recap">WEEKLY RECAP</button></div>`;
+    $("#ln-retrain").onclick = async () => { const r = await post("/api/learning/retrain"); if (r) { alert(r.skipped || `v${r.version} trained, now running in shadow`); pollLearn(); } };
+    $("#ln-rollback").onclick = async () => { if (!confirm("Roll back the scorer to the previous good version?")) return; const r = await post("/api/learning/rollback"); if (r) { alert(r.skipped || `rolled back v${r.from} → v${r.to}`); pollLearn(); } };
+    $("#ln-recap").onclick = openRecap;
+  }
+  async function openRecap() {
+    $("#dk-recap-text").textContent = "loading…"; $("#dk-recap").showModal();
+    let r = null; try { r = (await j("/api/recap")); } catch { /* none yet */ }
+    $("#dk-recap-text").textContent = r && r.text ? r.text : "No recap yet: the first one is written after a week of running (or press WRITE A NEW ONE NOW).";
+    $("#dk-recap-new").onclick = async (e) => { e.preventDefault(); $("#dk-recap-text").textContent = "writing…"; const n = await post("/api/learning/recap"); if (n) $("#dk-recap-text").textContent = n.text; };
+  }
+  setInterval(() => { if (D.on) pollLearn(); }, 15000);
+
+  // SPEED: the measured path a coin takes, and the slowest steps (/api/perf)
+  const fmtS = (x) => x == null ? "—" : x < 1 ? Math.round(x * 1000) + " ms" : x < 120 ? x.toFixed(1) + " s" : (x / 60).toFixed(1) + " min";
+  const STAGE_NAME = { "launch→ws": "launch → feed", "ws→db": "feed → database", "db→scored": "database → scored", "scored→gated": "scored → decision",
+    "gated→filled": "decision → paper fill", "launch→gated": "LAUNCH → DECISION", "launch→filled": "LAUNCH → FILL" };
+  async function pollPerf() {
+    let p; try { p = await j("/api/perf"); } catch { return; }
+    const rows = p.path.filter(r => r.n), mx = Math.max(0.001, ...rows.map(r => r.p95 || 0));
+    const slow = (p.timers.sniper || []).concat(p.timers.scan || []).slice(0, 6);
+    $("#dk-spd").textContent = p.feed && p.feed.connected ? "feed live" : p.feed && p.feed.since ? "feed reconnecting" : "feed off (demo)";
+    $("#dk-speed").innerHTML = (rows.map(r => `<div class="sp-r ${r.stage.startsWith("launch→g") || r.stage.startsWith("launch→f") ? "tot" : ""}"><span>${STAGE_NAME[r.stage] || r.stage}</span>
+        <div><i style="width:${Math.max(2, r.p50 / mx * 100)}%"></i><s style="left:${Math.min(100, r.p95 / mx * 100)}%"></s></div><b>${fmtS(r.p50)}</b><em>p95 ${fmtS(r.p95)}</em></div>`).join("")
+      || '<div class="dk-empty">collecting… every coin is timed from launch to decision</div>') +
+      (slow.length ? `<div class="sp-k">SLOWEST STEPS (p50)</div>` + slow.map(t => `<div class="sp-t"><span>${esc(t.name.split(":")[1] || t.name)}</span><b>${fmtS(t.p50)}</b></div>`).join("") : "") +
+      `<div class="sp-k">RPC · auto failover</div>` + (p.rpc || []).map(r => `<div class="sp-t"><span>${esc(r.name)}${r.benched ? ` <i style="color:#ff6b6b;font-style:normal">benched ${r.bench_s}s</i>` : ""}</span><b>${r.calls ? r.ms + " ms" : "idle"}</b></div>`).join("") +
+      `<div class="sp-k">FAST GATE · in memory</div><div class="sp-t"><span>${p.fastgate.devs.toLocaleString()} devs · ${p.fastgate.blacklisted} blacklisted · ${p.fastgate.kol_wallets} KOL wallets</span><b>&lt;1 µs</b></div>` +
+      (p.feed && p.feed.trades != null ? `<div class="sp-t"><span>live trade stream · ${p.feed.watching || 0} coins watched</span><b>${(p.feed.trades || 0).toLocaleString()} trades</b></div>` : "");
+  }
+  setInterval(() => { if (D.on) pollPerf(); }, 4000);
+
   async function poll(force) {
     if (!D.on && !force) return;
     try {
@@ -309,7 +368,7 @@ book = Paper(start=${s.start_balance_sol} SOL, fee=${s.fee_pct}%, slip=${s.slipp
   function show(on) {
     D.on = on;
     if (D.field) D.field.active = on;
-    if (on) { mount(); D.field.active = true; poll(true); clearInterval(D.timer); D.timer = setInterval(poll, 2000); } else clearInterval(D.timer);
+    if (on) { mount(); D.field.active = true; poll(true); pollPerf(); pollLearn(); clearInterval(D.timer); D.timer = setInterval(poll, 2000); } else clearInterval(D.timer);
   }
   setInterval(() => { if (D.on) $("#dk-clock").textContent = new Date().toLocaleTimeString([], { hour12: false }); }, 1000);
   // one switch for the three views: SCOPE (dashboard) | SNIPER DESK | DEV LAB

@@ -114,5 +114,6 @@
     "socials": {"enabled": true, "refresh_h": 6, "coins_per_scan": 25, "rate_per_min": 40},
     "demo": {"enabled": false, "launches_per_10min": 10, "seed": 1337, "scan_every_min": 1}
   },
-  "devlab": {"right_mcap": 40000, "partial_mcap": 30000}
+  "devlab": {"right_mcap": 40000, "partial_mcap": 30000},
+  "rpc": {"backups": ["https://api.mainnet-beta.solana.com"], "slow_s": 3.0, "bench_s": 60}
 }

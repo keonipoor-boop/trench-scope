@@ -67,8 +67,12 @@ def _coins_by_dev(min_runners: int = 1, only: list[str] | None = None) -> dict[s
     by = defaultdict(list)
     for i in range(0, len(devs), 200):
         chunk = devs[i:i + 200]
-        for c in db.coins(f"{DEV_SQL} IN ({','.join('?' * len(chunk))})", tuple(chunk), order="created_ts DESC"):
-            by[dev_of(c)].append(c)
+        q = ",".join("?" * len(chunk))
+        # both json columns are indexed (OR uses both indexes); dev_of() then applies dev_wallet-before-creator
+        for c in db.coins(f"(json_extract(data,'$.dev_wallet') IN ({q}) OR json_extract(data,'$.creator') IN ({q}))",
+                          tuple(chunk) * 2, order="created_ts DESC"):
+            if dev_of(c) in chunk:
+                by[dev_of(c)].append(c)
     return {w: cs for w, cs in by.items() if sum(1 for c in cs if c.get("is_runner")) >= min_runners}
 
 

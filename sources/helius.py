@@ -120,8 +120,8 @@ class HeliusTxs(Source):
         try:
             for _ in range(self.conf.get("sig_pages", 25)):
                 params = {"limit": 1000, **({"before": before} if before else {})}
-                r = self.http_post(rpc_url(), json={"jsonrpc": "2.0", "id": 1, "method": "getSignaturesForAddress",
-                                                    "params": [address, params]})
+                from core import rpc
+                r = rpc.call("getSignaturesForAddress", [address, params])  # fails over to backup RPCs
                 page = (r or {}).get("result") or []
                 sigs += [s for s in page if not s.get("err")]
                 if len(page) < 1000 or (created_ts and page[-1].get("blockTime") and page[-1]["blockTime"] <= created_ts):

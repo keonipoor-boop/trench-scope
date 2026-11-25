@@ -55,9 +55,15 @@ class AgentRun:
 
     def __enter__(self):
         agent_status(self.agent, "running", self.detail)
+        self._t0 = time.perf_counter()
         return self
 
     def __exit__(self, et, ev, tb):
+        try:  # SPEED: every agent stage is timed
+            from core import perf
+            perf.record(f"scan:{self.agent.lower()} · {self.detail.split(' on ')[0][:34]}", time.perf_counter() - self._t0)
+        except Exception:
+            pass
         if et:
             agent_status(self.agent, "error", f"{et.__name__}: {ev}")
             log(self.agent, f"failed: {et.__name__}: {ev}", "error", tb=traceback.format_exc()[-800:])

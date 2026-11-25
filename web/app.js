@@ -134,7 +134,7 @@ function drawTapeChart() {
   const cs = STATE.tape.filter(c => (c.ts_100k || c.created_ts) > now - span);
   const lo = Math.log10(1e5), hi = Math.log10(Math.max(2e5, ...cs.map(c => c.ath_mcap)) * 1.2);
   const X = ts => pad + (1 - (now - ts) / span) * (W - pad - 6), Y = v => H - 16 - (Math.log10(v) - lo) / (hi - lo) * (H - 26);
-  g.font = "9px JetBrains Mono"; g.fillStyle = "#5d7183"; g.strokeStyle = "rgba(60,90,120,.15)";
+  g.font = "9px JetBrains Mono"; g.fillStyle = "#6e6e6e"; g.strokeStyle = "rgba(60,90,120,.15)";
   for (const v of [1e5, 3e5, 1e6, 3e6, 1e7]) { if (Math.log10(v) > hi) break; const y = Y(v); g.beginPath(); g.moveTo(pad, y); g.lineTo(W, y); g.stroke(); g.fillText(usd(v), 0, y + 3); }
   for (let k = 4; k >= 0; k--) {  // 5 time ticks across the selected timeframe
     const ago = span * k / 4;
@@ -147,7 +147,7 @@ function drawTapeChart() {
     const y = H - 16 - (acc.reduce((a, b) => a + b) / acc.length - lo) / (hi - lo) * (H - 26), x = X(c.ts_100k || c.created_ts);
     i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); g.setLineDash([]);
   for (const c of cs) {
-    const x = X(c.ts_100k || c.created_ts), col = c.is_real === true ? "#39ff88" : c.is_real === false ? "#ff4d6d" : "#7d8ba0";
+    const x = X(c.ts_100k || c.created_ts), col = c.is_real === true ? "#7ee2a8" : c.is_real === false ? "#ff6b6b" : "#7c7c7c";
     const cur = Math.max(1e5, Math.min(c.ath_mcap, c.usd_market_cap || 1e5));
     g.strokeStyle = col; g.lineWidth = 1; g.beginPath(); g.moveTo(x, Y(1e5)); g.lineTo(x, Y(c.ath_mcap)); g.stroke();
     g.fillStyle = col; g.globalAlpha = .85; g.fillRect(x - 2.5, Math.min(Y(cur), Y(c.ath_mcap)), 5, Math.max(2, Math.abs(Y(cur) - Y(c.ath_mcap)))); g.globalAlpha = 1;
@@ -167,7 +167,7 @@ function renderSynapse() {
     // a 429 (rate limit) with a recent success is "LIMITED" (slowing down), not broken
     const limited = !s.ok && /429|rate|Too Many/i.test(s.last_error || "") && s.last_ok_ts && Date.now() / 1000 - s.last_ok_ts < 1800;
     const cls = s.ok ? "ok" : limited ? "lim" : "bad";
-    const st = s.ok ? ["#39ff88", "● OK"] : limited ? ["#ffd23d", "● LIMITED"] : ["#ff4d6d", "● ERR"];
+    const st = s.ok ? ["#7ee2a8", "● OK"] : limited ? ["#f2e14c", "● LIMITED"] : ["#ff6b6b", "● ERR"];
     return `<div class="src ${cls}" data-src="${esc(s.name)}" tabindex="0" style="cursor:pointer" title="${esc(s.last_error || "")}">
       <b><img class="srcico" src="/api/srcicon/${encodeURIComponent(s.name)}" alt="" onerror="this.remove()">${esc(s.name)}</b><span class="st" style="color:${st[0]}">${st[1]}</span>
       <span class="sub">${esc(s.agent)} · ${s.calls} calls · ${s.latency_ms ? Math.round(s.latency_ms) + "ms" : "—"}${!s.ok && s.last_error ? " · " + esc(s.last_error) : ""}</span></div>`;
@@ -192,7 +192,7 @@ function renderSynapse() {
 function renderAgents() {
   const by = Object.fromEntries(STATE.agents.map(a => [a.name, a]));
   $("#agents").innerHTML = Object.keys(AGENT_INFO).map(n => {
-    const a = by[n] || { status: "idle", detail: "waiting" }; const col = a.status === "error" ? "#ff4d6d" : AC[n];
+    const a = by[n] || { status: "idle", detail: "waiting" }; const col = a.status === "error" ? "#ff6b6b" : AC[n];
     const pct = { running: 0.7, ok: 1, warn: 0.6, error: 0.35, idle: 0.15 }[a.status] ?? 0.15;
     const C = 2 * Math.PI * 16;
     return `<div class="agent ${a.status}" style="--ac:${col}" title="${esc(a.detail)}">
@@ -240,9 +240,9 @@ function renderHourly() {
   const rows = x.themes.filter(t => t.runners || t.launches).slice(0, 7); const max = Math.max(1, ...rows.map(t => t.runners));
   const all = STATE.themes.themes.map(t => t.theme);
   $("#hourlybody").innerHTML = `<div class="hr-top">${sh.shift ? `<span class="shift">⚡ META SHIFT</span>` : `<span class="noshift">NO SHIFT</span>`}
-      <span>1H LEADER <b style="color:#ff3df2">${esc(h.leader || "—")}</b></span><span class="dim">vs 24H</span><b style="color:#39ff88">${esc(sh.daily_leader || "—")}</b>
+      <span>1H LEADER <b style="color:#e85cf0">${esc(h.leader || "—")}</b></span><span class="dim">vs 24H</span><b style="color:#7ee2a8">${esc(sh.daily_leader || "—")}</b>
       <span class="dim">· ${x.runners} runners / ${x.launches} launches · ${ago(h.ts)} ago</span></div>
-    ${sh.shift ? `<div style="color:#ff3df2;margin-top:6px">${esc(sh.reason)}</div>` : ""}
+    ${sh.shift ? `<div style="color:#e85cf0;margin-top:6px">${esc(sh.reason)}</div>` : ""}
     <div class="hr-grid"><div><div class="cx-text">${esc(h.text)}</div></div>
       <div><div class="sec">THEMES THIS HOUR</div>${rows.map(t => `<div class="tbar"><span>${esc(t.theme)}</span><div class="track">
         <div class="fillb" style="width:${t.runners / max * 100}%;background:${window.Synapse.PALETTE[all.indexOf(t.theme) % 11]}"></div></div><span class="r">${t.runners} · ${t.momentum}x</span></div>`).join("")}</div>
@@ -282,7 +282,7 @@ async function openCoin(mint) {
   let c; try { c = await j("/api/coin/" + encodeURIComponent(mint)); } catch { return; }
   const badge = c.is_real === true ? `<span class="badge real">REAL</span>` : c.is_real === false ? `<span class="badge fake">FAILS CHECKS</span>` : `<span class="badge unk">PENDING</span>`;
   const sig = Object.entries(c.signals || {}).map(([k, s]) => {
-    const st = s.passed === true ? "ok" : s.passed === false ? "no" : "na"; const col = st === "ok" ? "#39ff88" : st === "no" ? "#ff4d6d" : "#2a3a48";
+    const st = s.passed === true ? "ok" : s.passed === false ? "no" : "na"; const col = st === "ok" ? "#7ee2a8" : st === "no" ? "#ff6b6b" : "#2c2c2c";
     return `<div class="sig"><span>${esc(s.label)}${s.required ? "" : "<small class=dim>*</small>"}</span><div class="track"><div class="fillb" style="width:${(s.score || 0) * 100}%;background:${col};box-shadow:0 0 8px ${col}"></div></div>
       <span class="${st}">${st === "ok" ? "PASS" : st === "no" ? "FAIL" : "—"}</span><span class="note">${esc(s.note)}</span></div>`;
   }).join("");
@@ -293,7 +293,7 @@ async function openCoin(mint) {
   const why = c.why || c.why_template || [];
   $("#coin").innerHTML = `<div class="cf-top"><img src="/api/img/${encodeURIComponent(c.mint)}" alt="" onerror="this.remove()">
       <div style="flex:1;min-width:0"><div class="cf-sym">$${esc(c.symbol)} ${badge}</div><div class="cf-name">${esc(c.name)} · ${esc(c.mint.slice(0, 6))}…${esc(c.mint.slice(-6))}${c.demo ? " · demo" : ""}</div></div>
-      <div style="text-align:right"><div class="midnum" style="color:#39ff88">${usd(c.ath_mcap)}</div><div class="dim">ATH · now ${usd(c.usd_market_cap)}</div></div></div>
+      <div style="text-align:right"><div class="midnum" style="color:#7ee2a8">${usd(c.ath_mcap)}</div><div class="dim">ATH · now ${usd(c.usd_market_cap)}</div></div></div>
     <div class="cf-tabs" role="tablist"><button data-cf="main" aria-selected="${CF_TAB === "main"}">◆ OVERVIEW</button><button data-cf="x" aria-selected="${CF_TAB === "x"}">𝕏 POSTS <span id="cf-xn"></span></button></div>
     <div id="cf-x" ${CF_TAB === "x" ? "" : "hidden"}><div class="dim" style="padding:10px 0"><span class="spin">◌</span> finding the posts behind it…</div></div>
     <div id="cf-main" ${CF_TAB === "main" ? "" : "hidden"}>
@@ -305,7 +305,7 @@ async function openCoin(mint) {
       <div><span>HOLDERS</span><b>${c.holders?.toLocaleString() ?? "—"}</b></div><div><span>TOP 10</span><b>${c.top10_pct != null ? c.top10_pct + "%" : "—"}</b></div><div><span>TRADERS</span><b>${c.unique_traders?.toLocaleString() ?? "—"}</b></div>
       <div><span>FEES PAID</span><b>${c.fees_sol != null ? c.fees_sol + " SOL" : "—"}</b></div><div><span>FEE / VOL</span><b>${c.fee_volume_pct != null ? c.fee_volume_pct + "%" : "—"}</b></div><div><span>X MENTIONS</span><b>${c.x_mentions ?? "—"}${c.x_big_account ? " ★" : ""}</b></div>
       <div><span>ROUND-TRIP WALLETS</span><b>${c.round_trip_pct != null ? c.round_trip_pct + "%" : "—"}</b></div><div><span>SAME-SIZE TRADES</span><b>${c.size_mode_pct != null ? c.size_mode_pct + "%" : "—"}</b></div><div><span>TRADES / WALLET</span><b>${c.txs_per_trader ?? "—"}</b></div>
-      <div><span>STAIRCASE</span><b style="color:${(c.staircase_score ?? 0) >= 0.65 ? "#ff4d6d" : "inherit"}">${c.staircase_score ?? "—"}</b></div><div><span>MAX PULLBACK</span><b>${c.max_pullback_pct != null ? c.max_pullback_pct + "%" : "—"}</b></div><div><span>CLIFF DUMP</span><b style="color:${c.cliff_dump ? "#ff4d6d" : "inherit"}">${c.cliff_dump == null ? "—" : c.cliff_dump ? "YES" : "no"}</b></div>
+      <div><span>STAIRCASE</span><b style="color:${(c.staircase_score ?? 0) >= 0.65 ? "#ff6b6b" : "inherit"}">${c.staircase_score ?? "—"}</b></div><div><span>MAX PULLBACK</span><b>${c.max_pullback_pct != null ? c.max_pullback_pct + "%" : "—"}</b></div><div><span>CLIFF DUMP</span><b style="color:${c.cliff_dump ? "#ff6b6b" : "inherit"}">${c.cliff_dump == null ? "—" : c.cliff_dump ? "YES" : "no"}</b></div>
       <div><span>ORGANIC SCORE</span><b>${c.organic_score ?? "—"}</b></div><div><span>ORGANIC VOL</span><b>${c.organic_volume_pct != null ? c.organic_volume_pct + "%" : "—"}</b></div><div><span>DEV LAUNCHES</span><b>${c.dev_launches ?? "—"}</b></div></div>
     ${!c.demo ? `<div class="sec"><span>LIVE CHART</span><span>dexscreener</span></div>
       <iframe class="dexchart" loading="lazy" title="DexScreener chart" referrerpolicy="no-referrer"
@@ -317,7 +317,7 @@ async function openCoin(mint) {
     ${c.description ? `<div class="sec"><span>DESCRIPTION</span></div><div class="dim">${esc(c.description)}</div>` : ""}
     ${c.x_bio || c.x_pinned_text || c.x_community_desc || c.site_text ? `<div class="sec"><span>WHAT IT SAYS ABOUT ITSELF</span><span>${c.socials_ts ? "read " + ago(c.socials_ts) + " ago" : ""}</span></div>
       ${[["X bio", c.x_bio], ["Pinned X post", c.x_pinned_text], ["X community", c.x_community_desc], ["Website", c.site_text && c.site_text.slice(0, 400) + (c.site_text.length > 400 ? "…" : "")]]
-        .filter(x => x[1]).map(x => `<div class="kv" style="display:block"><span style="display:block;color:#7f93a5;margin-bottom:2px">${x[0]}</span><b style="font-weight:400;white-space:pre-wrap">${esc(x[1])}</b></div>`).join("")}` : ""}
+        .filter(x => x[1]).map(x => `<div class="kv" style="display:block"><span style="display:block;color:#7c7c7c;margin-bottom:2px">${x[0]}</span><b style="font-weight:400;white-space:pre-wrap">${esc(x[1])}</b></div>`).join("")}` : ""}
     <div class="links">${links}</div></div>`;
   $("#coin").querySelectorAll(".cf-tabs button").forEach(b => b.onclick = () => {
     CF_TAB = b.dataset.cf;
@@ -338,7 +338,7 @@ async function pollEvents() {
     if (evs.length) {
       const box = $("#trace"), atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
       const first = lastEvent === 0;
-      box.insertAdjacentHTML("beforeend", evs.map(e => `<div class="ev ${e.level} ${first ? "" : "fresh"}" style="--ac:${AC[e.agent] || "#5d7183"}">
+      box.insertAdjacentHTML("beforeend", evs.map(e => `<div class="ev ${e.level} ${first ? "" : "fresh"}" style="--ac:${AC[e.agent] || "#6e6e6e"}">
         <span class="t">${new Date(e.ts * 1000).toLocaleTimeString([], { hour12: false })}</span><span class="a">${esc(e.agent)}</span><span class="m">${esc(e.msg)}</span></div>`).join(""));
       while (box.children.length > 400) box.firstChild.remove();
       if (atBottom || first) box.scrollTop = box.scrollHeight;
@@ -375,7 +375,7 @@ async function loadMeta() {
   $("#foot").dataset.v = VERSION ? VERSION.version : "";
   if (VERSION && VERSION.edition === "friends") {  // Friends Edition: same app, its own data
     document.title = "Trench Scope Friends";
-    if (!$("#ed-badge")) $(".livewire").insertAdjacentHTML("afterbegin", '<span class="lw-badge" id="ed-badge" style="background:#ff3df2">FRIENDS EDITION</span>');
+    if (!$("#ed-badge")) $(".livewire").insertAdjacentHTML("afterbegin", '<span class="lw-badge" id="ed-badge" style="background:#e85cf0">FRIENDS EDITION</span>');
   }
 }
 
@@ -447,9 +447,9 @@ const tagsHtml = (style, risk) => (style || []).map(t => `<span class="tag s">${
 const handleOf = (tw) => tw ? tw.replace(/\/+$/, "").split("/").pop().replace(/^@/, "") : "";
 
 // solar system: KOLs orbit the KOL core as planets; ring colour = trading style
-const STYLE_COLORS = [["Sniper", "#22e6ff"], ["Scalper", "#39ff88"], ["Swing", "#a26bff"], ["Late momentum", "#ff8a3d"],
-  ["Whale", "#ffd23d"], ["hunter", "#ff3df2"], ["High-frequency", "#4dd0ff"], ["Generalist", "#f2f7ff"]];
-const styleColor = (style) => (STYLE_COLORS.find(([k]) => (style || []).some(s => s.includes(k))) || [0, "#c8d6e2"])[1];
+const STYLE_COLORS = [["Sniper", "#f2e14c"], ["Scalper", "#7ee2a8"], ["Swing", "#a78bfa"], ["Late momentum", "#ff9f5a"],
+  ["Whale", "#f2e14c"], ["hunter", "#e85cf0"], ["High-frequency", "#7dd3fc"], ["Generalist", "#f4f4f4"]];
+const styleColor = (style) => (STYLE_COLORS.find(([k]) => (style || []).some(s => s.includes(k))) || [0, "#d8d8d8"])[1];
 const PLANETS = new Map();  // name -> {el, ring, angle, speed, size}
 let ZOOMED = null, spaceT0 = performance.now(), HOVER = false, pausedAt = null, KOL_REQ = 0;
 let PTR = null;  // last pointer position over the solar system; the orbit pauses while it's on a planet or moon
@@ -465,8 +465,8 @@ function planetSize(k) { const n = k.summary.positions || 0; return Math.round(4
 
 // the same solar system shows KOLs or devs (devs populate themselves from runners' creators)
 let SYS_MODE = "kol";
-const DEV_COLORS = [["Needs wallet", "#ff3df2"], ["Tracking", "#22e6ff"], ["Hit maker", "#39ff88"], ["Fake factory", "#ff4d6d"], ["Clean runners", "#22e6ff"], ["Serial launcher", "#ff8a3d"],
-  ["One-hit", "#a26bff"], ["Migrator", "#ffd23d"], ["New dev", "#f2f7ff"]];
+const DEV_COLORS = [["Needs wallet", "#e85cf0"], ["Tracking", "#f2e14c"], ["Hit maker", "#7ee2a8"], ["Fake factory", "#ff6b6b"], ["Clean runners", "#f2e14c"], ["Serial launcher", "#ff9f5a"],
+  ["One-hit", "#a78bfa"], ["Migrator", "#f2e14c"], ["New dev", "#f4f4f4"]];
 function devToPlanet(d) {
   return { name: d.key || d.wallet, display: (d.tracked ? "★ " : "") + d.name, wallet: d.wallet, status: "done", style: d.labels,
     tracked: !!d.tracked, needs_wallet: !!d.needs_wallet,
@@ -514,8 +514,8 @@ async function loadKols() {
     if (p.sig !== sig) {
       p.sig = sig;
       p.el.style.width = p.el.style.height = p.size + "px";
-      p.el.style.setProperty("--pc", k.status === "running" ? "#22e6ff" : SYS_MODE === "dev"
-        ? ((DEV_COLORS.find(([l]) => (k.style || []).includes(l)) || [0, "#c8d6e2"])[1]) : styleColor(k.style));
+      p.el.style.setProperty("--pc", k.status === "running" ? "#f2e14c" : SYS_MODE === "dev"
+        ? ((DEV_COLORS.find(([l]) => (k.style || []).includes(l)) || [0, "#d8d8d8"])[1]) : styleColor(k.style));
       p.el.classList.toggle("running", k.status === "running" || k.status === "new");
       p.el.title = `${k.name} · ${(k.style || []).join(", ") || k.status}`;
       const per = (k.periods || {})[KPERIOD];
@@ -526,10 +526,10 @@ async function loadKols() {
     syncMoons(p, k, host);
   });
   $("#kollegend").innerHTML = SYS_MODE === "dev"
-    ? DEV_COLORS.map(([k, c]) => `<span style="--c:${c}">${k}</span>`).join("") + '<span style="--c:#5d7183">moons = their runners · found automatically</span>'
-      + (KOLS.length ? "" : '<span style="--c:#ff3df2">devs appear as their coins run</span>')
+    ? DEV_COLORS.map(([k, c]) => `<span style="--c:${c}">${k}</span>`).join("") + '<span style="--c:#6e6e6e">moons = their runners · found automatically</span>'
+      + (KOLS.length ? "" : '<span style="--c:#e85cf0">devs appear as their coins run</span>')
     : STYLE_COLORS.map(([k, c]) => `<span style="--c:${c}">${k === "hunter" ? "Narrative hunter" : k}</span>`).join("") +
-      (KOLS.length ? "" : '<span style="--c:#ff3df2">click the core to add your first KOL</span>');
+      (KOLS.length ? "" : '<span style="--c:#e85cf0">click the core to add your first KOL</span>');
   if (ZOOMED && !PLANETS.has(ZOOMED)) zoomOut();
   if (ZOOMED && $("#koldetail").dataset.status === "running" && KOLS.find(k => k.name === ZOOMED)?.status !== "running") openKol(ZOOMED);
 }
@@ -654,7 +654,7 @@ function pnlCard(p) {
     const X = (t) => (t - t0) / Math.max(1, t1 - t0) * W, Y = (v) => H - 6 - (v - lo) / Math.max(1e-9, hi - lo) * (H - 12);
     path = pts.map((q, i) => (i ? "L" : "M") + X(q[0]).toFixed(1) + " " + Y(q[1]).toFixed(1)).join(" ");
     area = `M0 ${Y(0).toFixed(1)} ` + pts.map(q => "L" + X(q[0]).toFixed(1) + " " + Y(q[1]).toFixed(1)).join(" ") + ` L${W} ${Y(0).toFixed(1)} Z`;
-    area = `<line x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}" stroke="#ffffff22" stroke-dasharray="3 4"/><path d="${area}" fill="${cum >= 0 ? "#39ff8818" : "#ff4d6d18"}"/>`;
+    area = `<line x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}" stroke="#ffffff22" stroke-dasharray="3 4"/><path d="${area}" fill="${cum >= 0 ? "#7ee2a818" : "#ff6b6b18"}"/>`;
   }
   // headline = REALIZED PnL (what wallet trackers like Axiom / kolscan show); unrealized is shown beside it
   const real = per.realized_sol ?? per.pnl_sol;
@@ -862,23 +862,23 @@ function renderPlaybook() {
   if (PB_TAB === "spot") {
     const s = d.spot, mx = Math.max(...s.best.map(r => r.lift || 0), 1);
     side = `<div class="pb-k">HIT RATE BY SIGNAL · base rate ${s.base_rate}% of ${s.launches.toLocaleString()} launches</div><div class="pb-bars">
-      ${s.best.map(r => bar(r.feature, r.lift || 0, mx, (r.lift ?? "—") + "x", "#39ff88", `${r.hit_rate}% of ${r.n.toLocaleString()} launches ran`, r.examples)).join("")}
-      ${s.worst.map(r => bar(r.feature, r.lift || 0, mx, (r.lift ?? "—") + "x", "#ff4d6d", `${r.hit_rate}% of ${r.n.toLocaleString()} launches ran`, r.examples)).join("")}</div>`;
+      ${s.best.map(r => bar(r.feature, r.lift || 0, mx, (r.lift ?? "—") + "x", "#7ee2a8", `${r.hit_rate}% of ${r.n.toLocaleString()} launches ran`, r.examples)).join("")}
+      ${s.worst.map(r => bar(r.feature, r.lift || 0, mx, (r.lift ?? "—") + "x", "#ff6b6b", `${r.hit_rate}% of ${r.n.toLocaleString()} launches ran`, r.examples)).join("")}</div>`;
   } else if (PB_TAB === "buy") {
     const b = d.buy, mx = Math.max(...b.ladder.map(l => l.n), 1);
     side = `<div class="pb-k">THE ODDS LADDER · once it reaches a level, how often it reaches the next</div><div class="pb-funnel">
       ${b.ladder.map(l => `<div class="pb-step"><span>${money(l.from)}</span><div style="width:${Math.max(4, l.n / mx * 100)}%"></div><em>${l.pct}% → ${money(l.to)} · ${l.n.toLocaleString()}</em></div>`).join("")}</div>
-      ${b.speed.length ? `<div class="pb-k" style="margin-top:12px">SPEED TO $100K · share that went on to $500k</div><div class="pb-bars">${b.speed.map(s => bar(s.label, s.to_500k || 0, 100, (s.to_500k ?? "—") + "%", "#ff8a3d", `${s.n} runners · ${s.real ?? "—"}% REAL · median peak ${money(s.median_ath)}`)).join("")}</div>` : ""}`;
+      ${b.speed.length ? `<div class="pb-k" style="margin-top:12px">SPEED TO $100K · share that went on to $500k</div><div class="pb-bars">${b.speed.map(s => bar(s.label, s.to_500k || 0, 100, (s.to_500k ?? "—") + "%", "#ff9f5a", `${s.n} runners · ${s.real ?? "—"}% REAL · median peak ${money(s.median_ath)}`)).join("")}</div>` : ""}`;
   } else if (PB_TAB === "hold") {
     const h = d.hold;
     side = `<div class="pb-k">HOW MUCH OF THE PEAK RUNNERS KEEP · runners older than 6h${h.overall.median_keep != null ? ` · overall ${h.overall.median_keep}%` : ""}</div><div class="pb-bars">
-      ${h.groups.map(g => bar(g.label, g.median_keep || 0, 100, g.median_keep + "%", (g.median_keep || 0) >= 50 ? "#39ff88" : "#ffb347", `${g.faded_pct}% faded below 30% of peak · ${g.n} runners`, g.examples)).join("")}
-      ${h.catalysts.map(c => bar((CAT_NICE[c.catalyst] || c.catalyst) + " coins", c.median_keep || 0, 100, c.median_keep + "%", "#22e6ff", `${c.faded_pct}% faded · ${c.n} runners`)).join("")}</div>`;
+      ${h.groups.map(g => bar(g.label, g.median_keep || 0, 100, g.median_keep + "%", (g.median_keep || 0) >= 50 ? "#7ee2a8" : "#ffb347", `${g.faded_pct}% faded below 30% of peak · ${g.n} runners`, g.examples)).join("")}
+      ${h.catalysts.map(c => bar((CAT_NICE[c.catalyst] || c.catalyst) + " coins", c.median_keep || 0, 100, c.median_keep + "%", "#f2e14c", `${c.faded_pct}% faded · ${c.n} runners`)).join("")}</div>`;
   } else {
     const c = d.cut;
     side = `<div class="pb-k">AFTER A DROP FROM THE HIGH · how often it made a new high (${c.coins_with_history} runners with price history)</div><div class="pb-bars">
-      ${c.recovery.map(r => bar(`down ${r.drawdown}% from the high`, r.new_high_pct || 0, 100, r.new_high_pct + "%", (r.new_high_pct || 0) < 25 ? "#ff4d6d" : "#ffb347", `${r.n} times it happened`)).join("") || '<div class="pb-note">not enough price history yet</div>'}</div>
-      ${c.kols.length ? `<div class="pb-k" style="margin-top:12px">HOW YOUR KOLS CUT LOSERS</div><div class="pb-bars">${c.kols.filter(k => k.stop_loss_x).map(k => bar(k.name, Math.abs((k.stop_loss_x - 1) * 100), 100, Math.round((k.stop_loss_x - 1) * 100) + "%", "#a26bff", `cuts after ~${dur(k.cut_after_s)} · ${k.win_rate ?? "—"}% win rate`)).join("")}</div>` : ""}`;
+      ${c.recovery.map(r => bar(`down ${r.drawdown}% from the high`, r.new_high_pct || 0, 100, r.new_high_pct + "%", (r.new_high_pct || 0) < 25 ? "#ff6b6b" : "#ffb347", `${r.n} times it happened`)).join("") || '<div class="pb-note">not enough price history yet</div>'}</div>
+      ${c.kols.length ? `<div class="pb-k" style="margin-top:12px">HOW YOUR KOLS CUT LOSERS</div><div class="pb-bars">${c.kols.filter(k => k.stop_loss_x).map(k => bar(k.name, Math.abs((k.stop_loss_x - 1) * 100), 100, Math.round((k.stop_loss_x - 1) * 100) + "%", "#a78bfa", `cuts after ~${dur(k.cut_after_s)} · ${k.win_rate ?? "—"}% win rate`)).join("")}</div>` : ""}`;
   }
   $("#pb-body").innerHTML = `<div class="pb-wrap"><div><div class="pb-k">THE THESIS</div><ol class="pb-rules">${rules}</ol>
     <div class="pb-note">Rules are rebuilt from the bot's own data every 15 minutes (and follow the TIMEFRAME bar). Not financial advice.</div></div><div>${side}</div></div>`;
@@ -917,7 +917,7 @@ async function loadLeaders() {
       const c = t.top[0], col = window.Synapse.PALETTE[Math.max(0, all.indexOf(t.theme)) % window.Synapse.PALETTE.length];
       return `<div class="th-card"><h4><i style="background:${col};box-shadow:0 0 8px ${col}"></i>${esc(t.theme)}<em>${t.runners} runner${t.runners === 1 ? "" : "s"} · ${t.real} real</em></h4>
         <div class="th-crown" data-mint="${esc(c.mint)}">${coinImg(c.image, c.symbol, true, c.mint)}
-          <div style="min-width:0"><span style="color:#ffd23d">♛ #1 of the ${per}</span><b>${esc(c.name || c.symbol)} ${statusPill(c)}</b>
+          <div style="min-width:0"><span style="color:#f2e14c">♛ #1 of the ${per}</span><b>${esc(c.name || c.symbol)} ${statusPill(c)}</b>
             <span>$${esc(c.symbol)} · ${esc(CAT_NICE[c.primary_catalyst] || "")}</span><div class="v">${usd(c.ath_mcap)}</div></div></div>
         ${t.top.slice(1).map((x, i) => coinRowHtml(x).replace(/(<div class="coin-row[^>]*>)/, `$1<span class="rank-n r${i + 2}">#${i + 2}</span>`).replace('<div class="coin-row', '<div class="coin-row ld-r"')).join("")}
       </div>`; }).join("")}</div>`;
@@ -996,7 +996,7 @@ async function loadLibrary() {
 function exampleShelf(ex) {
   if (!ex || !(ex.typical || []).length && !(ex.best || []).length) return "";
   const card = (p) => {
-    const x = p.multiple, col = x == null ? "#8fa3b5" : x >= 1 ? "#7ee2a8" : "#ff9aa9";
+    const x = p.multiple, col = x == null ? "#8a8a8a" : x >= 1 ? "#7ee2a8" : "#ff9aa9";
     return `<button class="ex-card" data-mint="${esc(p.mint)}" title="$${esc(p.symbol)}${p.name ? " · " + esc(p.name) : ""}">
       ${coinImg(p.image, p.symbol, false, p.mint)}
       <div class="ex-body"><b>$${esc(p.symbol)}</b>

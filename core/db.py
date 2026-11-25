@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS snapshots (
   mint TEXT, ts INTEGER, mcap REAL, holders INTEGER, volume_24h REAL, data TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_snap_mint ON snapshots(mint, ts);
+CREATE INDEX IF NOT EXISTS ix_coins_creator ON coins(json_extract(data,'$.creator'));
+CREATE INDEX IF NOT EXISTS ix_coins_devw ON coins(json_extract(data,'$.dev_wallet'));
+CREATE INDEX IF NOT EXISTS ix_coins_real ON coins(is_real, is_runner);
 
 CREATE TABLE IF NOT EXISTS theses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,6 +160,10 @@ class DB:
                 existing = self.get_coin(mint) if merge else None
             finally:
                 self._tl.writing -= 1
+            if existing is None:  # SPEED: first time this coin reaches the database
+                from core import perf
+                perf.launch(mint, coin.get("created_ts"))
+                perf.mark(mint, "db")
             c = dict(existing or {})
             for k, v in coin.items():
                 if v is None and k != "is_real":  # is_real None = "still analysing": must replace a stale verdict

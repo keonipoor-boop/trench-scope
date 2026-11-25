@@ -195,6 +195,14 @@ def generate(kind: str) -> dict:
         log("THESIS", msg, "warn" if shift and shift["shift"] else "info")
         run.result = msg
         out = {"id": tid, "kind": kind, "text": text, "data": s}
+        if shift and shift.get("shift"):  # the meta moved: retrain the scorer on the newest outcomes + heads-up
+            try:
+                from core import learning
+                r = learning.retrain("meta shift")
+                learning.alert(f"Meta shift: {shift.get('reason')}. " + (f"Retrained: v{r['version']} is now testing in shadow." if r
+                               else "Not enough resolved outcomes to retrain yet; it will as soon as there are."))
+            except Exception as e:
+                log("THESIS", f"learning: {e}", "warn")
         try:
             from core import drafts
             drafts.on_thesis(kind, out)

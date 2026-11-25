@@ -1,8 +1,8 @@
 /* THE SYNAPSE — narrative themes as glowing neurons with dendrite branches,
    axons into the cortex, and blob agents drifting between them. Pure canvas. */
 (function () {
-  const PALETTE = ["#22e6ff", "#39ff88", "#ff3df2", "#ff8a3d", "#a26bff", "#ffd23d", "#ff4d6d", "#4dd0ff", "#b6ff3d", "#ff9de6", "#7d8ba0"];
-  const AGENT_COLORS = { SCOUT: "#22e6ff", HOLDERS: "#39ff88", KOLS: "#ff3df2", FEES: "#ff8a3d", CATALYST: "#a26bff", THESIS: "#f2f7ff" };
+  const PALETTE = ["#f2e14c", "#7ee2a8", "#e85cf0", "#ff9f5a", "#a78bfa", "#f2e14c", "#ff6b6b", "#7dd3fc", "#d9d9d9", "#ff9de6", "#7c7c7c"];
+  const AGENT_COLORS = { SCOUT: "#f2e14c", HOLDERS: "#7ee2a8", KOLS: "#e85cf0", FEES: "#ff9f5a", CATALYST: "#a78bfa", THESIS: "#f4f4f4" };
   const AGENT_SHAPE = { SCOUT: "drop", HOLDERS: "round", KOLS: "tri", FEES: "drop", CATALYST: "tri", THESIS: "round" };
 
   function rng(seed) { let s = 0; for (const ch of String(seed)) s = (s * 31 + ch.charCodeAt(0)) >>> 0;
@@ -65,7 +65,7 @@
     // neighbour synapses
     for (let i = 0; i < S.nodes.length; i++) {
       const a = S.nodes[i], b = S.nodes[(i + 1) % S.nodes.length];
-      g.strokeStyle = "rgba(120,160,200,0.07)"; g.lineWidth = 1; g.beginPath(); g.moveTo(a.x, a.y);
+      g.strokeStyle = "rgba(200,200,200,0.06)"; g.lineWidth = 1; g.beginPath(); g.moveTo(a.x, a.y);
       g.quadraticCurveTo((a.x + b.x) / 2 * 0.9 + c.x * 0.1, (a.y + b.y) / 2 * 0.9 + c.y * 0.1, b.x, b.y); g.stroke();
     }
     S.dendrites = off;
@@ -83,7 +83,9 @@
     for (let k = 0; k < kids; k++) grow(g, cx, cy, a + (R() - 0.5) * 1.5, len * (0.6 + R() * 0.2), w * 0.62, depth + 1, R, color, glow);
   }
 
-  function hexA(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a.toFixed(3)})`; }
+  // fibers are mostly monochrome (terminal look): the theme colour is mixed 70% toward light grey
+  function hexA(hex, a) { const n = parseInt(hex.slice(1), 16), m = (c) => Math.round(c * 0.3 + 205 * 0.7);
+    return `rgba(${m(n >> 16)},${m((n >> 8) & 255)},${m(n & 255)},${(a * 0.85).toFixed(3)})`; }
 
   function makeAgent(name) {
     const c = center();
@@ -132,15 +134,15 @@
       <span>hit rate</span><b>${n.hit_rate}%</b><span>momentum</span><b>${n.momentum}x</b>
       <span>share</span><b>${n.share}%</b><span>real</span><b>${n.real_pct == null ? "—" : n.real_pct + "%"}</b>
       <span>last hour</span><b>${n.h_runners} runners</b></div>
-      ${n.top && n.top.length ? `<div style="margin-top:4px;color:#5d7183">top: ${n.top.map(t => "$" + t.symbol).join(" ")}</div>` : ""}
-      <div style="margin-top:4px;color:#22e6ff">click to see its coins</div>`;
+      ${n.top && n.top.length ? `<div style="margin-top:4px;color:#6e6e6e">top: ${n.top.map(t => "$" + t.symbol).join(" ")}</div>` : ""}
+      <div style="margin-top:4px;color:#f2e14c">click to see its coins</div>`;
   }
 
   function frame(now) {
     const g = S.ctx, t = (now - S.t0) / 1000; const c = center();
     g.setTransform(S.dpr, 0, 0, S.dpr, 0, 0); g.clearRect(0, 0, S.w, S.h);
     // grid
-    g.strokeStyle = "rgba(60,90,120,0.07)"; g.lineWidth = 1;
+    g.strokeStyle = "rgba(160,160,160,0.06)"; g.lineWidth = 1;
     for (let x = (t * 6) % 40; x < S.w; x += 40) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, S.h); g.stroke(); }
     for (let y = 0; y < S.h; y += 40) { g.beginPath(); g.moveTo(0, y); g.lineTo(S.w, y); g.stroke(); }
     drawFibers(g, t);
@@ -169,7 +171,7 @@
       g.beginPath(); g.arc(n.x, n.y, r, 0, 7); g.fill(); g.shadowBlur = 0;
       g.fillStyle = "rgba(255,255,255,0.75)"; g.beginPath(); g.arc(n.x - r * 0.3, n.y - r * 0.3, r * 0.28, 0, 7); g.fill();
       if (n.theme === S.leader || n.theme === S.hourlyLeader || S.hover === n) {
-        g.strokeStyle = n.theme === S.hourlyLeader && n.theme !== S.leader ? "#ff3df2" : "#f2f7ff"; g.lineWidth = 1.2;
+        g.strokeStyle = n.theme === S.hourlyLeader && n.theme !== S.leader ? "#e85cf0" : "#f4f4f4"; g.lineWidth = 1.2;
         g.setLineDash([4, 4]); g.lineDashOffset = -t * 20; g.beginPath(); g.arc(n.x, n.y, r + 8, 0, 7); g.stroke(); g.setLineDash([]);
       }
       // label pill
@@ -177,7 +179,7 @@
       const lw = g.measureText(label).width + 14, lx = n.x - lw / 2, ly = n.y + r + 10;
       g.fillStyle = "rgba(4,7,11,0.85)"; g.strokeStyle = hexA(n.color, 0.7); g.lineWidth = 1;
       roundRect(g, lx, ly, lw, 17, 8); g.fill(); g.stroke();
-      g.fillStyle = "#e8f1fa"; g.fillText(label, lx + 7, ly + 12);
+      g.fillStyle = "#ececec"; g.fillText(label, lx + 7, ly + 12);
       if (n.momentum >= 1.5) { g.fillStyle = n.color; g.font = "700 9px JetBrains Mono, monospace";
         g.fillText(`▲ ${n.momentum}x`, n.x - 16, n.y - r - 8); }
     }
@@ -220,13 +222,13 @@
   function drawAgent(g, a, t) {
     const st = (S.agentState[a.name] || {}); const busy = st.status === "running", err = st.status === "error";
     const bob = Math.sin(t * 2 + a.seed) * 3, s = a.size * (1 + Math.sin(t * 3 + a.seed) * 0.03);
-    const x = a.x, y = a.y + bob; const col = err ? "#ff4d6d" : a.color;
+    const x = a.x, y = a.y + bob; const col = err ? "#ff6b6b" : a.color;
     g.save(); g.translate(x, y);
     g.shadowColor = col; g.shadowBlur = busy ? 36 : 18;
     const body = g.createRadialGradient(-s * 0.3, -s * 0.4, s * 0.1, 0, 0, s * 1.2);
     body.addColorStop(0, "#ffffff"); body.addColorStop(0.35, col); body.addColorStop(1, hexA(col, 0.75));
     g.fillStyle = a.name === "THESIS" ? (() => { const b = g.createRadialGradient(-s * .3, -s * .4, s * .1, 0, 0, s * 1.1);
-      b.addColorStop(0, "#ffffff"); b.addColorStop(0.7, "#e6ecf5"); b.addColorStop(1, "#9aa6b8"); return b; })() : body;
+      b.addColorStop(0, "#ffffff"); b.addColorStop(0.7, "#e6e6e6"); b.addColorStop(1, "#9a9a9a"); return b; })() : body;
     g.beginPath();
     const wob = (k) => 1 + Math.sin(t * 3 + a.seed + k) * 0.05;
     if (a.shape === "round") { g.ellipse(0, 0, s * wob(0), s * 0.95 * wob(1), 0, 0, 7); }
@@ -237,7 +239,7 @@
     g.fill(); g.shadowBlur = 0;
     // eyes: two vertical capsules, blink occasionally
     const blink = (Math.sin(t * 0.9 + a.seed * 7) > 0.985) ? 0.15 : 1;
-    g.fillStyle = "#06080c"; const ew = s * 0.13, eh = s * 0.34 * blink, ex = s * 0.24, ey = s * 0.02;
+    g.fillStyle = "#08080a"; const ew = s * 0.13, eh = s * 0.34 * blink, ex = s * 0.24, ey = s * 0.02;
     roundRect(g, -ex - ew / 2, ey - eh / 2, ew, eh, ew / 2); g.fill(); roundRect(g, ex - ew / 2, ey - eh / 2, ew, eh, ew / 2); g.fill();
     g.restore();
     // name pill
