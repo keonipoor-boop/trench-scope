@@ -608,3 +608,6 @@ dialog h3 { margin: 0 0 12px; letter-spacing: .12em; font-size: 13px; color: var
 .ex-x small { display: block; font: 500 10.5px Inter, sans-serif; color: #8fa3b5; }
 
 .panel button.big-cta { border-color: var(--mag); color: #fff; background: #ff3df233; padding: 4px 12px; font-weight: 700; }
+
+/* the hidden attribute always wins (".panel button { display: … }" used to override it, e.g. + ADD KOL on the library tab) */
+[hidden] { display: none !important; }

@@ -62,8 +62,11 @@ WHY_SYSTEM = ("You are a terse memecoin analyst. Given data about a pump.fun coi
 def why_bullets(coin: dict) -> list[str] | None:
     keys = ["name", "symbol", "description", "twitter", "website", "ath_mcap", "time_to_100k_min", "holders",
             "top10_pct", "unique_traders", "fees_sol", "fee_volume_pct", "kols", "x_mentions", "x_big_accounts",
-            "x_top_tweets", "tweet_author", "livestream", "themes", "catalysts", "is_real"]
+            "x_top_tweets", "tweet_author", "livestream", "themes", "catalysts", "is_real",
+            "tweet_text", "x_bio", "x_pinned_text", "x_community_desc", "site_text"]
     data = {k: coin.get(k) for k in keys if coin.get(k) not in (None, [], "")}
+    if data.get("site_text"):
+        data["site_text"] = data["site_text"][:1500]
     out = ask(f"Coin data (JSON):\n{data}", system=WHY_SYSTEM, max_tokens=600)
     if not out:
         return None

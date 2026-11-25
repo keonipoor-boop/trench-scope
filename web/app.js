@@ -4,9 +4,9 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const usd = (v) => !v ? "$0" : v >= 1e6 ? "$" + (v / 1e6).toFixed(2) + "M" : v >= 1e3 ? "$" + (v / 1e3).toFixed(0) + "k" : "$" + Math.round(v);
 const mins = (m) => m == null ? "—" : m >= 60 ? (m / 60).toFixed(1) + "h" : Math.round(m) + "m";
 const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? Math.round(s) + "s" : s < 3600 ? Math.round(s / 60) + "m" : s < 86400 ? (s / 3600).toFixed(1) + "h" : (s / 86400).toFixed(1) + "d"; };
-const CAT = { celebrity_tweet: "CELEB TWEET", tweet_play: "TWEET PLAY", community: "COMMUNITY", cto: "CTO", tech: "TECH/UTILITY",
+const CAT = { rewards: "HOLDER REWARDS", celebrity_tweet: "CELEB TWEET", tweet_play: "TWEET PLAY", community: "COMMUNITY", cto: "CTO", tech: "TECH/UTILITY",
   kol_call: "KOL CALL", livestream: "LIVESTREAM", news: "NEWS/EVENT", meme: "PURE MEME" };
-const CAT_NICE = { celebrity_tweet: "Celebrity tweet", tweet_play: "Tweet play", community: "Community", cto: "CTO",
+const CAT_NICE = { rewards: "Holder rewards", celebrity_tweet: "Celebrity tweet", tweet_play: "Tweet play", community: "Community", cto: "CTO",
   tech: "Tech / utility", kol_call: "KOL call", livestream: "Livestream", news: "News / event", meme: "Pure meme" };
 const AGENT_INFO = { SCOUT: "discovery", HOLDERS: "holders", KOLS: "kol wallets", FEES: "fees/traders", CATALYST: "why it ran", THESIS: "narrative" };
 const AC = window.Synapse.AGENT_COLORS;
@@ -315,6 +315,9 @@ async function openCoin(mint) {
     <div class="sec"><span>CATALYST RULES HIT</span></div>${(c.catalysts || []).map(h => `<div class="kv"><span>${esc(h.label)}</span><b>${h.weight}</b></div>`).join("")}
     <div class="sec"><span>THEMES</span></div><div class="words">${(c.themes || []).map(t => `<span class="word">${esc(t)}</span>`).join("") || "<span class=dim>unthemed</span>"}</div>
     ${c.description ? `<div class="sec"><span>DESCRIPTION</span></div><div class="dim">${esc(c.description)}</div>` : ""}
+    ${c.x_bio || c.x_pinned_text || c.x_community_desc || c.site_text ? `<div class="sec"><span>WHAT IT SAYS ABOUT ITSELF</span><span>${c.socials_ts ? "read " + ago(c.socials_ts) + " ago" : ""}</span></div>
+      ${[["X bio", c.x_bio], ["Pinned X post", c.x_pinned_text], ["X community", c.x_community_desc], ["Website", c.site_text && c.site_text.slice(0, 400) + (c.site_text.length > 400 ? "…" : "")]]
+        .filter(x => x[1]).map(x => `<div class="kv" style="display:block"><span style="display:block;color:#7f93a5;margin-bottom:2px">${x[0]}</span><b style="font-weight:400;white-space:pre-wrap">${esc(x[1])}</b></div>`).join("")}` : ""}
     <div class="links">${links}</div></div>`;
   $("#coin").querySelectorAll(".cf-tabs button").forEach(b => b.onclick = () => {
     CF_TAB = b.dataset.cf;

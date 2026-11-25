@@ -7,7 +7,7 @@ import re
 CATEGORY_LABELS = {
     "celebrity_tweet": "CELEBRITY TWEET", "tweet_play": "TWEET PLAY", "community": "COMMUNITY COIN",
     "cto": "CTO", "tech": "TECH / UTILITY", "kol_call": "KOL CALL", "livestream": "LIVESTREAM",
-    "news": "NEWS / EVENT", "meme": "PURE MEME / VIBES",
+    "news": "NEWS / EVENT", "meme": "PURE MEME / VIBES", "rewards": "HOLDER REWARDS",
 }
 
 
@@ -20,7 +20,9 @@ class CatalystRule:
 
 
 def text_of(coin) -> str:
-    return " ".join(str(coin.get(k) or "") for k in ("name", "symbol", "description", "tweet_text")).lower()
+    # what the coin says about itself: its own description, linked post, X bio / pinned post / community (sources/socials.py)
+    return " ".join(str(coin.get(k) or "") for k in ("name", "symbol", "description", "tweet_text", "x_bio", "x_pinned_text",
+                                                     "x_community_desc")).lower()
 
 
 def has_word(text: str, *words) -> bool:

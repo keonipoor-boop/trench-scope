@@ -52,7 +52,9 @@ def derive(c: dict, thr: float):
 
 
 def template_why(c: dict) -> list[str]:
-    out = [h["bullet"] for h in (c.get("catalysts") or [])[:2]]
+    hits = c.get("catalysts") or []
+    real_hits = [h for h in hits if h["category"] != "meme"]  # "pure meme" is the fallback: only when nothing else matched
+    out = [h["bullet"] for h in (real_hits or hits)[:2]]
     sig = c.get("signals") or {}
     if c.get("time_to_100k_min") is not None:
         out.append(f"Hit $100k in {c['time_to_100k_min']:.0f} min, peaked at ${c['ath_mcap'] / 1e3:,.0f}k")
@@ -203,11 +205,12 @@ def scan(backfill_days: float | None = None) -> dict:
                     c["fake"] = explain_fake(c) if c["is_real"] is False else {}  # {} clears a stale verdict
                     c["primary_catalyst"], c["catalysts"] = classify(c, rules, ctx)
                     c["why_template"] = template_why(c)
-                    if final and llm_budget[0] and not c.get("why_llm") and c.get("deep_ts"):
+                    # Claude re-writes the why when the catalyst changes (e.g. its socials revealed holder rewards)
+                    if final and llm_budget[0] and c.get("deep_ts") and (not c.get("why_llm") or c.get("why_llm_cat") != c["primary_catalyst"]):
                         b = llm.why_bullets(c)
                         llm_budget[0] -= 1
                         if b:
-                            c["why_llm"] = b
+                            c["why_llm"], c["why_llm_cat"] = b, c["primary_catalyst"]
                     c["why"] = c.get("why_llm") or c["why_template"]
                 except Exception as e:  # one bad coin never blocks the rest
                     log("CATALYST", f"{c.get('symbol')}: {e}", "warn")

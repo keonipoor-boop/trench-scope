@@ -319,6 +319,11 @@ class DemoDeep(_DemoBase):
                 "x_big_accounts": [author] if big and author else (["cryptowhale"] if big else []),
                 "tweet_author": author,
                 "x_top_tweets": demo_posts(r, c, scale, now),
+                "x_bio": (r.choice(["Holders earn SOL rewards every 10 minutes. 50% of creator fees go to holders.",
+                                    "A basket of the top Solana memes in one token. Hold one, own them all.",
+                                    "Stake $" + str(c.get("symbol")) + " for 40% APY. Weekly buybacks."])
+                          if r.random() < 0.12 else None),
+                "socials_ts": int(now),
                 "tweet_text": (f"{c.get('name')} {r.choice(['🚀', 'is inevitable', 'lol', 'who did this', '👀'])}" if author else None),
                 "tweet_ts": (int((c.get("created_ts") or now) - r.uniform(600, 7200)) if author else None),
                 "tweet_author_followers": (int(r.uniform(2e6, 9e7)) if author and s["cat"] == "celeb" else int(r.uniform(800, 60000)) if author else None),

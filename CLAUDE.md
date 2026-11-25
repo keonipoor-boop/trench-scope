@@ -50,6 +50,7 @@ merges them (None never overwrites; `ath_mcap` only ever goes up). Common fields
 | holders, top10_pct, unique_traders, organic_score, organic_volume_pct | jupiter_tokens |
 | kols: [{name, twitter, ts}] | kols |
 | x_mentions, x_top_tweets, x_big_account, tweet_author, tweet_author_followers | twitter |
+| x_bio, x_pinned_text, x_community_desc, site_text, tweet_text, socials_ts | socials (X API, else free fxtwitter; website text) |
 | themes, is_runner, signals, is_real, primary_catalyst, catalysts, why, why_llm | pipeline |
 
 ## Pipeline stages and costs
@@ -129,8 +130,11 @@ class Airdrop(CatalystRule):
         if has_word(text_of(coin), "airdrop"):
             return self.category, 62, "Airdrop hype pulled in farmers"
 ```
-Weights in use: celebrity 85-95, tech/github 75, CTO 70, KOL call 65-85 (early) / 30 (late), tweet 60,
-news 58, livestream 55, tech pitch 50, community 45, meme 10 (fallback). Add a display label in
+Weights in use: celebrity 85-95, tech/github 75, holder rewards / rev share / staking / index 70-85 (`catalysts/rewards.py`,
+reads description + X bio + pinned post + X community + website, never the name alone; buyback/burn 62), CTO 70, KOL call 65-85 (early) / 30 (late), tweet 60,
+news 58, livestream 55, tech pitch 50, community 45, meme 10 (fallback). `text_of()` includes the coin's X bio / pinned post /
+community description; "pure meme" is only used in the why when no other rule matched; Claude re-writes `why_llm` when the
+primary catalyst changes (`why_llm_cat`). Add a display label in
 `CATEGORY_LABELS` (catalysts/base.py) and `CAT` (web/app.js).
 
 ### A theme
