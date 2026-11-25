@@ -222,6 +222,10 @@ Axiom New Pairs presets: `core/axiom_filters.py` (paste the JSON in ⚙ RULES; d
 (mint suffix / DexScreener dexId / Jupiter launchpad), age window (the WATCHER only looks that far back), volume, mcap,
 liquidity, holders, top-10, txns, buys, sells, KOLs, keywords, X handles, dev wallets, socials. Axiom-only data (snipers,
 insiders, bundles, fresh wallets, image reuse...) is listed as "not measured", never silently passed.
+HISTORY tab (desk header LIVE | HISTORY, `sniper.history(filter)` -> `/api/sniper/history?filter=all|open|wins|losses|mistakes|noted`):
+every trade with its entry evidence, exits, what the coin did after (outcomes h1/h24/d7, rescaled to our entry), automatic mistake
+tags (`MISTAKES`: sold early, stopped then ran, stop too tight, gave back gains, bought a rug, thin evidence, bought the top), your
+note + tag (`POST /api/sniper/history/<id>`), winners-vs-losers evidence gaps, PnL by exit reason, CSV export.
 API: `/api/sniper`, `POST /api/sniper/settings|filters|reset`, `POST /api/sniper/handoff/<id>/done|skip`. UI: `web/desk.js`
 (own view, SCOPE | SNIPER DESK switch in the top bar; SIGNAL CORE vortex canvas, evidence matrix, risk gauge).
 

@@ -30,10 +30,12 @@
         <div class="dk-ctl">
           <div class="dk-seg" id="dk-mode" role="tablist" title="AUTO: the bot paper-fills its own trades. DRYFLIP: every trade becomes a handoff you mirror in the DryFlip extension.">
             <button data-mode="auto">AUTO PAPER</button><button data-mode="dryflip">DRYFLIP HANDOFF</button></div>
+          <div class="dk-seg" id="dk-view"><button data-dv="live" aria-selected="true">◉ LIVE</button><button data-dv="hist" aria-selected="false">☰ HISTORY</button></div>
           <button class="dk-btn" id="dk-run">PAUSE</button><button class="dk-btn" id="dk-cfg">⚙ RULES</button>
           <span class="dk-live"><i></i>LIVE</span><span class="dk-clock" id="dk-clock"></span>
         </div>
       </header>
+      <section class="dk-hist" id="dk-hist" hidden></section>
       <section class="dk-metrics" id="dk-metrics"></section>
       <section class="dk-field" id="dk-field"><canvas id="dk-canvas"></canvas>
         <div class="dk-fieldlbl"><b>LANDSCAPE OF SIGNALS</b><span>fresh launches → six operators → paper book · every pulse is a real decision, at its real speed</span></div>
@@ -72,6 +74,7 @@
         <p class="small" id="dk-rmsg"></p>
         <div class="set-actions"><button value="cancel" formnovalidate>CLOSE</button><button id="dk-reset" value="reset" formnovalidate>RESET BOOK</button><button value="default">SAVE</button></div></form></dialog>`;
     document.querySelectorAll("#dk-mode button").forEach(b => b.onclick = () => save({ mode: b.dataset.mode }));
+    document.querySelectorAll("#dk-view button").forEach(b => b.onclick = () => setDeskView(b.dataset.dv));
     $("#dk-run").onclick = () => save({ enabled: !(D.data && D.data.settings.enabled) });
     $("#dk-cfg").onclick = openRules;
     $("#dk-rules-form").addEventListener("submit", onRules);
@@ -250,6 +253,86 @@ book = Paper(start=${s.start_balance_sol} SOL, fee=${s.fee_pct}%, slip=${s.slipp
     };
     $("#dk-code").innerHTML = C[D.codeTab];
   }
+
+  // ---- HISTORY: every trade, why it bought, how it ended, what the coin did after, mistakes, your notes ----------------
+  const H = { view: "live", filter: "all", open: null, data: null };
+  const TAGC = { sold_early: "#f2e14c", stopped_then_ran: "#ff9f5a", gave_back: "#ff6b6b", bought_rug: "#e85cf0", thin_evidence: "#a78bfa", late_entry: "#7dd3fc", stop_too_tight: "#ffb3d9" };
+  const TAGN = { sold_early: "SOLD EARLY", stopped_then_ran: "STOPPED, THEN RAN", gave_back: "GAVE BACK GAINS", bought_rug: "BOUGHT A RUG", thin_evidence: "THIN EVIDENCE", late_entry: "BOUGHT THE TOP", stop_too_tight: "STOP TOO TIGHT" };
+  function setDeskView(v) {
+    H.view = v;
+    document.querySelectorAll("#dk-view button").forEach(b => b.setAttribute("aria-selected", b.dataset.dv === v));
+    const live = v === "live";
+    ["#dk-metrics", "#dk-field", ".dk-ticker", ".dk-main", "#dk-foot"].forEach(sel => { const el = $("#desk " + sel) || $(sel); if (el) el.hidden = !live; });
+    $("#dk-hist").hidden = live;
+    if (D.field) D.field.active = live && D.on;
+    if (!live) loadHistory();
+  }
+  async function loadHistory() {
+    try { H.data = await j("/api/sniper/history?filter=" + H.filter); } catch { return; }
+    renderHistory();
+  }
+  function renderHistory() {
+    const d = H.data; if (!d) return;
+    const sm = d.summary, f2 = (v) => v == null ? "—" : Number(v).toFixed(2), x = (v) => v == null ? "—" : Number(v).toFixed(2) + "x";
+    const fl = [["all", "ALL"], ["open", "OPEN"], ["wins", "WINS"], ["losses", "LOSSES"], ["mistakes", "MISTAKES"], ["noted", "NOTED"]];
+    const mxEdge = Math.max(0.01, ...sm.evidence_edge.map(e => Math.abs(e.gap)));
+    $("#dk-hist").innerHTML = `
+      <div class="hs-top">
+        <div class="hs-kpis">${[["TRADES", sm.trades], ["WIN RATE", sm.win_rate != null ? sm.win_rate + "%" : "—"], ["REALIZED", (sm.realized_sol >= 0 ? "+" : "") + sm.realized_sol + " SOL"],
+          ["AVG WIN", sm.avg_win_sol != null ? "+" + sm.avg_win_sol : "—"], ["AVG LOSS", sm.avg_loss_sol ?? "—"], ["OPEN", sm.open]].map(([l, v]) => `<div><span>${l}</span><b>${v}</b></div>`).join("")}</div>
+        <div class="hs-ins">
+          <div class="dk-card"><div class="dk-h">MISTAKES <i>found automatically · click to filter</i></div>
+            ${Object.entries(sm.mistakes).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<div class="hs-m" title="${esc(d.mistake_labels[k] || "")}"><i style="background:${TAGC[k]}"></i><span>${TAGN[k] || k}</span><b>${n}</b><em>${esc((d.mistake_labels[k] || "").split(": ")[1] || "")}</em></div>`).join("") || '<div class="dk-empty">no mistakes tagged yet</div>'}</div>
+          <div class="dk-card"><div class="dk-h">WHAT SEPARATED WINNERS FROM LOSERS <i>average evidence at entry</i></div>
+            ${sm.evidence_edge.map(e => `<div class="hs-e"><span>${e.feature}</span><div><i class="${e.gap >= 0 ? "pos" : "neg"}" style="width:${Math.abs(e.gap) / mxEdge * 50}%;${e.gap >= 0 ? "left:50%" : "right:50%"}"></i></div><b>${f2(e.winners)} vs ${f2(e.losers)}</b></div>`).join("") || '<div class="dk-empty">needs a few wins and losses</div>'}</div>
+          <div class="dk-card"><div class="dk-h">HOW TRADES ENDED <i>exit reason · count · SOL</i></div>
+            ${Object.entries(sm.by_exit).map(([k, v]) => `<div class="hs-x"><span>${esc(k)}</span><b>${v.n}</b><em class="${v.pnl >= 0 ? "up" : "dn"}">${v.pnl >= 0 ? "+" : ""}${v.pnl}</em></div>`).join("") || '<div class="dk-empty">no closed trades yet</div>'}</div>
+        </div>
+      </div>
+      <div class="hs-bar"><div class="dk-seg">${fl.map(([k, l]) => `<button data-hf="${k}" aria-selected="${H.filter === k}">${l}</button>`).join("")}</div>
+        <span class="dim">${d.rows.length} trades · click a trade to see why it bought, how it exited and what the coin did after</span>
+        <button class="dk-btn" id="hs-csv">⤓ EXPORT CSV</button></div>
+      <div class="hs-table"><div class="hs-h"><span>COIN</span><span>BOUGHT</span><span>ENTRY</span><span>CONF</span><span>EXIT</span><span>PEAK</span><span>AFTER (24H PEAK)</span><span>PNL</span><span>MISTAKES</span></div>
+        ${d.rows.map(r => `<div class="hs-r ${r.status !== "closed" ? "open" : r.win ? "win" : "loss"} ${H.open === r.id ? "sel" : ""}" data-id="${r.id}">
+          <span class="hs-coin">${coinImg(r.image, r.symbol, false, r.mint)}<b>$${esc(r.symbol || "?")}</b>${r.mode === "dryflip" ? '<i class="dk-tag">DRYFLIP</i>' : ""}${r.note ? ' <i title="has a note">✎</i>' : ""}</span>
+          <span>${ago(r.opened_ts)} ago${r.entry_age_s != null ? `<small>coin ${dur(r.entry_age_s)} old</small>` : ""}</span>
+          <span>${usd(r.entry_mcap)}<small>${r.size_sol} SOL</small></span>
+          <span class="${r.conf < d.gate + 0.03 ? "warn" : ""}">${f2(r.conf)}</span>
+          <span>${r.status !== "closed" ? '<em class="open">open · ' + x(r.last_x) + "</em>" : x(r.exit_x) + `<small>${esc(((r.exits.slice(-1)[0] || {}).why || "").split(" ")[0])}</small>`}</span>
+          <span>${x(r.peak_x)}</span>
+          <span>${r.after.h24 ? x(r.after.h24.peak_x) : '<small>pending</small>'}${r.label ? `<small>${esc(r.label)}</small>` : ""}</span>
+          <span class="${r.realized_sol >= 0 ? "up" : "dn"}">${r.status === "closed" ? (r.realized_sol >= 0 ? "+" : "") + r.realized_sol : "—"}<small>${r.roi_pct != null && r.status === "closed" ? r.roi_pct + "%" : ""}</small></span>
+          <span class="hs-tags">${r.tags.map(t => t.startsWith("yours:") ? `<i class="yours">${esc(t.slice(6))}</i>` : `<i style="--t:${TAGC[t]}">${TAGN[t] || t}</i>`).join("")}</span></div>
+          ${H.open === r.id ? detail(r, d) : ""}`).join("") || '<div class="dk-empty" style="padding:14px">no trades here yet</div>'}</div>`;
+    document.querySelectorAll("#dk-hist [data-hf]").forEach(b => b.onclick = () => { H.filter = b.dataset.hf; loadHistory(); });
+    document.querySelectorAll("#dk-hist .hs-r").forEach(row => row.onclick = () => { H.open = H.open === +row.dataset.id ? null : +row.dataset.id; renderHistory(); });
+    document.querySelectorAll("#dk-hist [data-coin]").forEach(b => b.onclick = (e) => { e.stopPropagation(); openPop(b.dataset.coin, b); });
+    const sv = $("#hs-save"); if (sv) sv.onclick = async (e) => { e.stopPropagation(); const r = await post(`/api/sniper/history/${H.open}`, { note: $("#hs-note").value, tag: $("#hs-tag").value }); if (r) loadHistory(); };
+    $("#hs-csv").onclick = () => {
+      const head = ["id", "symbol", "mint", "opened", "entry_mcap", "size_sol", "conf", "exit_x", "peak_x", "after_24h_peak_x", "realized_sol", "roi_pct", "exit_reason", "mistakes", "note"];
+      const rows = d.rows.map(r => [r.id, r.symbol, r.mint, new Date(r.opened_ts * 1000).toISOString(), Math.round(r.entry_mcap), r.size_sol, r.conf, r.exit_x, r.peak_x,
+        r.after.h24 ? r.after.h24.peak_x : "", r.realized_sol, r.roi_pct, ((r.exits.slice(-1)[0] || {}).why || ""), r.tags.join("|"), (r.note || "").replace(/\n/g, " ")]);
+      const csv = [head, ...rows].map(a => a.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+      const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = "sniper-history.csv"; a.click();
+    };
+  }
+  function detail(r, d) {
+    const keys = Object.keys(r.evidence);
+    return `<div class="hs-d">
+      <div><div class="ln-k">WHY IT BOUGHT · evidence at entry (conf ${Number(r.conf).toFixed(2)} vs gate ${Number(d.gate).toFixed(2)})</div>
+        ${keys.map(k => { const v = r.evidence[k]; return `<div class="hs-ev"><span>${k}</span><div>${v == null ? '<s>not measured</s>' : `<i style="width:${v * 100}%"></i>`}</div><b>${v == null ? "—" : Number(v).toFixed(2)}</b></div>`; }).join("")}
+        <div class="ln-t" style="margin-top:6px">${esc(r.reason || "")}</div></div>
+      <div><div class="ln-k">HOW IT EXITED</div>
+        ${r.exits.map(e => `<div class="hs-ex"><span>${new Date(e.ts * 1000).toLocaleTimeString([], { hour12: false })}</span><b>${e.x}x</b><em>${esc(e.why)}</em><i class="${e.pnl >= 0 ? "up" : "dn"}">${e.pnl >= 0 ? "+" : ""}${e.pnl}</i></div>`).join("") || '<div class="ln-t">still open</div>'}
+        <div class="ln-k">WHAT THE COIN DID AFTER (vs our entry)</div>
+        ${["h1", "h24", "d7"].map(k => `<div class="hs-ex"><span>${k}</span>${r.after[k] ? `<b>${r.after[k].x}x now</b><em>peak ${r.after[k].peak_x}x</em>` : "<em>pending</em>"}</div>`).join("")}
+        ${r.tags.filter(t => !t.startsWith("yours:")).map(t => `<div class="hs-why" style="--t:${TAGC[t]}">${esc(d.mistake_labels[t] || t)}</div>`).join("")}</div>
+      <div><div class="ln-k">YOUR NOTES</div>
+        <textarea id="hs-note" rows="4" placeholder="what would you have done differently?" onclick="event.stopPropagation()">${esc(r.note || "")}</textarea>
+        <input id="hs-tag" placeholder="your tag (e.g. fomo, chased, good read)" value="${esc((r.tags.find(t => t.startsWith("yours:")) || "").slice(6))}" onclick="event.stopPropagation()">
+        <div class="lb-act"><button class="dk-btn pri" id="hs-save">SAVE NOTE</button><button class="dk-btn" data-coin="${esc(r.mint)}">OPEN COIN</button></div></div></div>`;
+  }
+  setInterval(() => { if (D.on && H.view === "hist" && !document.activeElement.closest?.(".hs-d")) loadHistory(); }, 20000);
 
   // ALWAYS LEARNING: versions, weights + why, outcomes, lists, alerts, change log (/api/learning)
   async function pollLearn() {

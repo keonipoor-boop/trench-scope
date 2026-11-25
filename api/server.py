@@ -547,6 +547,24 @@ async def sniper_filters(req: Request):
     return axiom_filters.summary(f)
 
 
+@app.get("/api/sniper/history")
+def sniper_history(filter: str = "all"):
+    from core import sniper
+    return sniper.history(filter)
+
+
+@app.post("/api/sniper/history/{pid}")
+async def sniper_note(pid: int, req: Request):
+    """Your journal on a trade: {note, tag}."""
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import sniper
+    b = await req.json()
+    if not sniper.set_note(pid, b.get("note"), b.get("tag")):
+        raise HTTPException(404, "no such trade")
+    return {"ok": True}
+
+
 @app.post("/api/sniper/reset")
 def sniper_reset(req: Request):
     if not _can_edit(req):

@@ -57,6 +57,10 @@ def ensure_tables():
             remaining REAL, peak_x REAL, last_x REAL, realized_sol REAL, fees_sol REAL, conf REAL, evidence TEXT, reason TEXT,
             exits TEXT, handoff TEXT)""")
     db.x("CREATE TABLE IF NOT EXISTS sniper_ticks (mint TEXT, ts INTEGER, mcap REAL)")
+    cols = {r["name"] for r in db.q("PRAGMA table_info(sniper_positions)")}
+    for col in ("note TEXT", "user_tag TEXT", "entry_age_s INTEGER"):  # your journal + how old the coin was when we bought
+        if col.split()[0] not in cols:
+            db.x(f"ALTER TABLE sniper_positions ADD COLUMN {col}")
     db.x("CREATE INDEX IF NOT EXISTS ix_sniper_ticks ON sniper_ticks(mint, ts)")
 
 
@@ -349,6 +353,8 @@ def _insert(db, x, px, mode, entry, size, fees, cf, ev, handoff) -> int:
         (x["mint"], x.get("symbol"), x.get("name"), x.get("image"), px.get("pair"), mode, int(time.time()),
          "handoff" if mode == "dryflip" else "open", entry, size, 1.0, 1.0, 1.0, 0.0, fees, cf, json.dumps(ev),
          _why(x, ev), "[]", json.dumps(handoff) if handoff else None))
+    if x.get("created_ts"):
+        db.conn.execute("UPDATE sniper_positions SET entry_age_s=? WHERE id=?", (int(time.time() - x["created_ts"]), cur.lastrowid))
     db.conn.commit()
     return cur.lastrowid
 
@@ -686,6 +692,126 @@ def save_settings(upd: dict) -> dict:
     db.kv_set("sniper_settings", {**(db.kv_get("sniper_settings") or {}), **clean})
     emit("HUMAN", "settings: " + ", ".join(f"{k}={v}" for k, v in clean.items()), "info")
     return conf()
+
+
+# ---------------------------------------------------------------- HISTORY: every trade, why, how it ended, what it did after
+MISTAKES = {
+    "sold_early": "Sold too early: after we exited it went at least 2x higher than our exit",
+    "stopped_then_ran": "Stopped out, then it ran: hit the stop-loss and later reached 2x our entry",
+    "gave_back": "Gave back gains: was up 1.5x+ during the trade but closed at a loss",
+    "bought_rug": "Bought a rug / fake: the coin was later labelled rugged or fake",
+    "thin_evidence": "Thin evidence: confidence barely cleared the gate and it lost",
+    "late_entry": "Bought the top: it never traded above our entry",
+    "stop_too_tight": "Stop too tight: stopped out, then it recovered above our entry",
+}
+
+
+def history(filt: str = "all", limit: int = 500) -> dict:
+    """Every trade the sniper took (open + closed), with the evidence it bought on, the exits, what the coin did after
+    (outcomes 1h / 24h / 7d), automatic mistake tags, and your own notes. Summary: win rate, avg win / loss, mistakes by type,
+    and which evidence was higher in winners than in losers."""
+    ensure_tables()
+    c = conf()
+    db = get_db()
+    rows = [dict(r) for r in db.q("SELECT * FROM sniper_positions ORDER BY opened_ts DESC LIMIT ?", (limit,))]
+    out_rows = {}
+    try:
+        from core import learning
+        learning.ensure_tables()
+        mints = [r["mint"] for r in rows]
+        for i in range(0, len(mints), 400):
+            ch = mints[i:i + 400]
+            for o in db.q(f"SELECT mint, mcap0, h1, h24, d7, label FROM outcomes WHERE mint IN ({','.join('?' * len(ch))})", tuple(ch)):
+                out_rows[o["mint"]] = dict(o)
+    except Exception:
+        pass
+    items = []
+    for r in rows:
+        exits = json.loads(r["exits"] or "[]")
+        ev = json.loads(r["evidence"] or "{}")
+        o = out_rows.get(r["mint"]) or {}
+        after = {}
+        for cp in ("h1", "h24", "d7"):
+            if o.get(cp):
+                d = json.loads(o[cp])
+                base = (o.get("mcap0") or r["entry_mcap"]) / r["entry_mcap"] if r["entry_mcap"] else 1  # outcomes are vs first-seen mcap
+                after[cp] = {"x": round((d.get("x") or 0) * base, 3) if d.get("x") is not None else None,
+                             "peak_x": round((d.get("peak_x") or 0) * base, 3) if d.get("peak_x") is not None else None}
+        exit_x = exits[-1]["x"] if exits else None
+        later_peak = max([a["peak_x"] or 0 for a in after.values()] + [0])
+        closed = r["status"] == "closed"
+        win = closed and (r["realized_sol"] or 0) > 0
+        tags = []
+        stopped = closed and any(e["why"].startswith(("stop-loss", "time stop")) for e in exits)
+        if closed and exit_x and not stopped and later_peak >= exit_x * 2:
+            tags.append("sold_early")
+        if stopped and later_peak >= 2:
+            tags.append("stopped_then_ran")
+        elif stopped and later_peak > 1.0:
+            tags.append("stop_too_tight")
+        if closed and (r["peak_x"] or 1) >= 1.5 and (r["realized_sol"] or 0) < 0:
+            tags.append("gave_back")
+        if o.get("label") in ("rugged", "fake"):
+            tags.append("bought_rug")
+        if closed and not win and (r["conf"] or 0) < c["gate"] + 0.03:
+            tags.append("thin_evidence")
+        if closed and not win and (r["peak_x"] or 1) <= 1.02 and exits and exits[-1]["x"] < 0.8:
+            tags.append("late_entry")
+        if r.get("user_tag"):
+            tags.append("yours:" + r["user_tag"])
+        hold = ((r["closed_ts"] or time.time()) - r["opened_ts"])
+        items.append({
+            "id": r["id"], "mint": r["mint"], "symbol": r["symbol"], "name": r["name"], "image": r["image"], "mode": r["mode"],
+            "status": r["status"], "opened_ts": r["opened_ts"], "closed_ts": r["closed_ts"], "hold_s": int(hold),
+            "entry_mcap": r["entry_mcap"], "size_sol": r["size_sol"], "conf": r["conf"], "evidence": ev, "reason": r["reason"],
+            "exits": exits, "realized_sol": round(r["realized_sol"] or 0, 4), "fees_sol": round(r["fees_sol"] or 0, 4),
+            "peak_x": r["peak_x"], "last_x": r["last_x"], "exit_x": exit_x, "after": after, "label": o.get("label"),
+            "roi_pct": round((r["realized_sol"] or 0) / r["size_sol"] * 100, 1) if r["size_sol"] else None,
+            "tags": tags, "note": r.get("note"), "win": win, "entry_age_s": r.get("entry_age_s")})
+    keep = {"all": lambda x: True, "open": lambda x: x["status"] != "closed", "wins": lambda x: x["win"],
+            "losses": lambda x: x["status"] == "closed" and not x["win"], "mistakes": lambda x: bool(x["tags"]),
+            "noted": lambda x: bool(x["note"])}.get(filt, lambda x: True)
+    closed = [x for x in items if x["status"] == "closed"]
+    wins = [x for x in closed if x["win"]]
+    losses = [x for x in closed if not x["win"]]
+    mist = {}
+    for x in items:
+        for t in x["tags"]:
+            if not t.startswith("yours:"):
+                mist[t] = mist.get(t, 0) + 1
+    # which evidence separated winners from losers
+    edge = []
+    for k in EVIDENCE:
+        w = [x["evidence"].get(k) for x in wins if x["evidence"].get(k) is not None]
+        l_ = [x["evidence"].get(k) for x in losses if x["evidence"].get(k) is not None]
+        if w and l_:
+            edge.append({"feature": k, "winners": round(sum(w) / len(w), 2), "losers": round(sum(l_) / len(l_), 2),
+                         "gap": round(sum(w) / len(w) - sum(l_) / len(l_), 2)})
+    edge.sort(key=lambda e: -abs(e["gap"]))
+    by_exit = {}
+    for x in closed:
+        why = (x["exits"][-1]["why"].split(" ")[0] if x["exits"] else "?")
+        b = by_exit.setdefault(why, {"n": 0, "pnl": 0.0})
+        b["n"] += 1
+        b["pnl"] = round(b["pnl"] + x["realized_sol"], 4)
+    return {"rows": [x for x in items if keep(x)], "mistake_labels": MISTAKES, "gate": c["gate"],
+            "summary": {"trades": len(items), "open": len(items) - len(closed), "closed": len(closed), "wins": len(wins),
+                        "win_rate": round(len(wins) / len(closed) * 100, 1) if closed else None,
+                        "avg_win_sol": round(sum(x["realized_sol"] for x in wins) / len(wins), 4) if wins else None,
+                        "avg_loss_sol": round(sum(x["realized_sol"] for x in losses) / len(losses), 4) if losses else None,
+                        "realized_sol": round(sum(x["realized_sol"] for x in closed), 4), "mistakes": mist, "evidence_edge": edge[:6],
+                        "by_exit": by_exit}}
+
+
+def set_note(pid: int, note: str | None = None, tag: str | None = None) -> bool:
+    db = get_db()
+    if not db.q("SELECT 1 FROM sniper_positions WHERE id=?", (pid,)):
+        return False
+    if note is not None:
+        db.x("UPDATE sniper_positions SET note=? WHERE id=?", (note.strip()[:1000] or None, pid))
+    if tag is not None:
+        db.x("UPDATE sniper_positions SET user_tag=? WHERE id=?", (tag.strip()[:40] or None, pid))
+    return True
 
 
 def handoff_done(pid: int, action: str) -> bool:
