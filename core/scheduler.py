@@ -35,6 +35,8 @@ class Scheduler:
         kol_research.start_worker()
         from core import sniper
         sniper.start_worker()  # SNIPER DESK: paper-trading sniper, its own loop
+        from core import devlab
+        devlab.start_worker()  # DEV LAB: narrative ideas + "would it have been right" checks
         if not cfg.demo and cfg.get_path("sources.pumpportal.enabled", True):
             from sources import pumpportal  # live launch/migration feed runs between scans
             pumpportal.start(cfg.get_path("sources.pumpportal.url", "wss://pumpportal.fun/api/data"))

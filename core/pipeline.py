@@ -246,6 +246,11 @@ def scan(backfill_days: float | None = None) -> dict:
     stats["deep"] = len(deep)
 
     analyze(final=True)
+    try:  # X DRAFTS: a fresh REAL runner -> a tweet draft + notification (you post it)
+        from core import drafts
+        drafts.on_runners(list(runners.values()))
+    except Exception as e:
+        log("THESIS", f"drafts: {e}", "warn")
     # per-signal agent summaries (HOLDERS / FEES / KOLS rings)
     for agent, keys in (("HOLDERS", ("holders", "top10")), ("FEES", ("fees", "traders")), ("KOLS", ("kols",))):
         checked = [c for c in runners.values() if any((c.get("signals") or {}).get(k, {}).get("passed") is not None for k in keys)]

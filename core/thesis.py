@@ -194,7 +194,13 @@ def generate(kind: str) -> dict:
             msg += f"  ** META SHIFT ** ({shift['reason']})"
         log("THESIS", msg, "warn" if shift and shift["shift"] else "info")
         run.result = msg
-        return {"id": tid, "kind": kind, "text": text, "data": s}
+        out = {"id": tid, "kind": kind, "text": text, "data": s}
+        try:
+            from core import drafts
+            drafts.on_thesis(kind, out)
+        except Exception as e:
+            log("THESIS", f"drafts: {e}", "warn")
+        return out
 
 
 def latest(kind: str) -> dict | None:

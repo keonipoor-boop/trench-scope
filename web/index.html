@@ -12,7 +12,7 @@
 <!-- TICKER ---------------------------------------------------------------->
 <div class="ticker"><div class="ticker-track" id="ticker"></div></div>
 <div class="livewire">
-  <span class="viewsw" id="viewsw" role="tablist"><button data-v="scope" aria-selected="true">◆ SCOPE</button><button data-v="desk" aria-selected="false">⌖ SNIPER DESK</button></span>
+  <span class="viewsw" id="viewsw" role="tablist"><button data-v="scope" aria-selected="true">◆ SCOPE</button><button data-v="desk" aria-selected="false">⌖ SNIPER DESK</button><button data-v="lab" aria-selected="false">✦ DEV LAB</button></span>
   <span class="lw-badge">LIVE WIRE</span>
   <span class="lw-text" id="livewire">booting agents…</span>
   <span class="lw-chips" id="lwchips"></span>
@@ -172,6 +172,8 @@
 </main>
 <!-- SNIPER DESK (web/desk.js) -->
 <main class="desk" id="desk" hidden></main>
+<main class="desk lab" id="lab" hidden></main>
+<div class="toasts" id="toasts"></div>
 <dialog id="koladd">
   <form method="dialog" id="koladd-form">
     <h3>◆ ADD / EDIT KOL</h3>
@@ -203,5 +205,6 @@
 <script src="/static/synapse.js"></script>
 <script src="/static/app.js"></script>
 <script src="/static/desk.js"></script>
+<script src="/static/devlab.js"></script>
 </body>
 </html>

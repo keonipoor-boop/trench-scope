@@ -399,6 +399,67 @@ def devs_list(limit: int = 24):
     return devs.devs_list(limit)
 
 
+# ---- DEV LAB (paper deving: ideas are checked, nothing is launched) -----------------------------
+@app.get("/api/devlab")
+def devlab_state():
+    from core import devlab
+    return devlab.state()
+
+
+@app.post("/api/devlab/refresh")
+def devlab_refresh(req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import devlab
+    return {"made": devlab.generate(6), "resolved": devlab.resolve()}
+
+
+@app.post("/api/devlab/ideas/{iid}/draft")
+def devlab_draft(iid: int, req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import devlab, drafts
+    devlab.ensure_table()
+    r = get_db().q("SELECT * FROM dev_ideas WHERE id=?", (iid,))
+    if not r:
+        raise HTTPException(404, "no such idea")
+    i = dict(r[0])
+    d = drafts.make("idea", {"parent": f"${i['parent_symbol']}", "name": i["name"], "ticker": i["ticker"], "keyword": i["keyword"],
+                             "pitch": i["pitch"]}, manual=True)
+    return d or {}
+
+
+# ---- X DRAFTS (you post them; nothing is posted automatically) ---------------------------------
+@app.get("/api/drafts")
+def drafts_get(after: int = 0):
+    from core import drafts
+    return {"drafts": drafts.list_drafts(after), "settings": {**drafts.settings(), "discord_webhook": bool(drafts.settings()["discord_webhook"])},
+            "triggers": drafts.TRIGGERS}
+
+
+@app.post("/api/drafts/settings")
+async def drafts_settings(req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import drafts
+    try:
+        s = drafts.save_settings(await req.json())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {**s, "discord_webhook": bool(s["discord_webhook"])}
+
+
+@app.post("/api/drafts/{did}/{status}")
+def drafts_status(did: int, status: str, req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    if status not in ("posted", "dismissed", "new"):
+        raise HTTPException(400, "posted | dismissed | new")
+    from core import drafts
+    drafts.set_status(did, status)
+    return {"ok": True}
+
+
 # ---- SNIPER DESK (paper trading) ---------------------------------------------------------
 @app.get("/api/sniper")
 def sniper_state(after: int = 0):

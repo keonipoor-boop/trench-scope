@@ -288,6 +288,15 @@ def _sell(c: dict, p: dict, frac_of_remaining: float, x_now: float, why: str) ->
     return pnl
 
 
+def _draft(side: str, coin: dict, extra: dict, key: str):
+    try:
+        from core import drafts
+        drafts.make_async("sniper", {"side": side, "mint": coin.get("mint"), "symbol": coin.get("symbol"), "paper": True,
+                                     "holding": side == "buy", **extra}, key=key)
+    except Exception:
+        pass
+
+
 def manage(c: dict, open_pos: list[dict], px: dict):
     db = get_db()
     for p in open_pos:
@@ -319,6 +328,8 @@ def manage(c: dict, open_pos: list[dict], px: dict):
             emit("RISK", f"TIME {tag} · held {held_min:.0f}m · {pnl:+.3f} SOL", "warn", round(x_now, 2))
         if p["remaining"] <= 1e-6:
             p["status"], p["closed_ts"] = "closed", int(time.time())
+            last = (json.loads(p["exits"] or "[]") or [{}])[-1]
+            _draft("sell", p, {"x": x_now, "pnl": p["realized_sol"], "reason": last.get("why", "")}, f"exit:{p['id']}")
             emit("REPORTER", f"CLOSED ${p['symbol']} · realized {p['realized_sol']:+.3f} SOL", "info")
         db.conn.execute("UPDATE sniper_positions SET remaining=?, peak_x=?, last_x=?, realized_sol=?, fees_sol=?, exits=?, status=?, "
                         "closed_ts=? WHERE id=?", (p["remaining"], p["peak_x"], p["last_x"], p["realized_sol"], p["fees_sol"],
@@ -399,6 +410,7 @@ def _tick():
                  "handoff", s["conf"])
         else:
             emit("EXECUTOR", f"BUY {c['size_sol']} SOL ${s['symbol']} @ ${s['mcap'] / 1e3:,.1f}k · conf {s['conf']:.2f}", "fill", s["conf"])
+        _draft("buy", s["_x"], {"mcap": s["mcap"], "why": _why(s["_x"], s["ev"]), "conf": s["conf"]}, f"snipe:{pid}")
         emit("REPORTER", f"position #{pid} ${s['symbol']} · evidence {_why(s['_x'], s['ev'])}", "info")
     ms = (time.monotonic() - t0) * 1000
     with _lock:
@@ -435,7 +447,7 @@ def state(after: int = 0) -> dict:
     ensure_tables()
     c = conf()
     db = get_db()
-    rows = [dict(r) for r in db.q("SELECT * FROM sniper_positions ORDER BY id DESC LIMIT 200")]
+    rows = [dict(r) for r in db.q("SELECT * FROM sniper_positions ORDER BY id DESC LIMIT 2000")]
     for r in rows:
         r["exits"] = json.loads(r["exits"] or "[]")
         r["evidence"] = json.loads(r["evidence"] or "{}")
@@ -457,6 +469,7 @@ def state(after: int = 0) -> dict:
         run += r["realized_sol"]
         pnl_hist.append([r["closed_ts"], round(run, 4)])
     return {
+        "readiness": readiness(closed, c["start_balance_sol"]),
         "filters": __import__("core.axiom_filters", fromlist=["summary"]).summary(__import__("core.axiom_filters", fromlist=["load"]).load()),
         "settings": c, "operators": ops, "log": logs[-120:], "candidates": _board["candidates"], "focus": _board["focus"],
         "evidence_keys": EVIDENCE, "positions": open_, "closed": closed[:40], "pnl_series": pnl_hist,
@@ -470,6 +483,55 @@ def state(after: int = 0) -> dict:
                 "tick_ms": round(ms[len(ms) // 2]) if ms else None, "exposure_sol": round(exposure, 4),
                 "exposure_pct": round(exposure / equity * 100, 1) if equity else 0, "ticks": _board["ticks"]},
     }
+
+
+def readiness(closed: list[dict], start: float) -> dict:
+    """LIVE READINESS 0.0-100: is this strategy's paper record strong enough to risk real money? Informational only:
+    the bot has no wallet and never trades live. Score = weighted parts, then hard caps for thin or losing records."""
+    from core.config import get_config
+    n = len(closed)
+    pnl = [r["realized_sol"] for r in sorted(closed, key=lambda r: r["closed_ts"] or 0)]
+    size = statistics_mean([r["size_sol"] for r in closed]) or 1
+    wins, losses = [x for x in pnl if x > 0], [x for x in pnl if x <= 0]
+    pf = sum(wins) / abs(sum(losses)) if losses and sum(losses) else (9.9 if wins else 0)
+    exp = sum(pnl) / n / size if n else 0                       # average return per trade, as a fraction of size
+    eq, peak, mdd = start, start, 0.0
+    for x in pnl:
+        eq += x
+        peak = max(peak, eq)
+        mdd = max(mdd, (peak - eq) / peak if peak else 0)
+    last = pnl[-20:]
+    recent_exp = sum(last) / len(last) / size if last else 0
+    span_d = (max(r["closed_ts"] or 0 for r in closed) - min(r["opened_ts"] for r in closed)) / 86400 if n else 0
+    parts = {
+        "sample": (min(1, n / 100), 25, f"{n} closed trades (100 = full credit)"),
+        "edge": (max(0, min(1, exp / 0.25)), 25, f"{exp * 100:+.1f}% average return per trade"),
+        "profit_factor": (max(0, min(1, (pf - 1) / 1)), 15, f"profit factor {pf:.2f} (2.0 = full credit)"),
+        "drawdown": (max(0, min(1, (0.4 - mdd) / 0.25)), 15, f"max drawdown {mdd * 100:.1f}% (under 15% = full)"),
+        "consistency": (max(0, min(1, recent_exp / max(exp, 0.01))) if exp > 0 else 0, 10, f"last 20 trades {recent_exp * 100:+.1f}% per trade"),
+        "time": (min(1, span_d / 7), 10, f"{span_d:.1f} days of paper trading (7 = full)"),
+    }
+    score = sum(v * w for v, w, _ in parts.values())
+    caps = []
+    if get_config().demo:
+        caps.append((15.0, "demo data: generated prices can't prove an edge"))
+    if n < 30:
+        caps.append((35.0, f"needs at least 30 closed trades ({30 - n} to go)"))
+    if pf < 1.2:
+        caps.append((30.0, f"profit factor {pf:.2f} is under 1.2: the strategy isn't clearly profitable"))
+    if mdd > 0.35:
+        caps.append((45.0, f"drawdown {mdd * 100:.0f}% is too deep"))
+    for cap, _ in caps:
+        score = min(score, cap)
+    verdict = ("not ready" if score < 40 else "promising: keep paper trading" if score < 70
+               else "ready for a small live test" if score < 85 else "ready")
+    return {"score": round(score, 1), "verdict": verdict, "caps": [c[1] for c in caps],
+            "parts": {k: {"score": round(v * 100), "weight": w, "note": t} for k, (v, w, t) in parts.items()}}
+
+
+def statistics_mean(xs):
+    xs = [x for x in xs if x is not None]
+    return sum(xs) / len(xs) if xs else None
 
 
 def save_settings(upd: dict) -> dict:

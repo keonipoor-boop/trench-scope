@@ -47,6 +47,7 @@
         <div class="dk-col">
           <div class="dk-card"><div class="dk-h">EVIDENCE MATRIX <i>top candidates × evidence</i></div><div id="dk-matrix"></div></div>
           <div class="dk-card"><div class="dk-h">HANDOFFS <i>operator activity</i></div><div id="dk-hand"></div></div>
+          <div class="dk-card dk-ready"><div class="dk-h">LIVE READINESS <i>is the paper record good enough to risk money?</i></div><div id="dk-ready"></div></div>
           <div class="dk-card"><div class="dk-h">RISK GAUGE <i>exposure of equity</i></div><div id="dk-gauge"></div></div>
           <div class="dk-card dk-dry" id="dk-drycard"><div class="dk-h">DRYFLIP HANDOFF QUEUE <em id="dk-dn"></em></div><div id="dk-dry"></div></div>
         </div>
@@ -176,6 +177,13 @@
       <text x="45" y="50" text-anchor="middle" fill="#f3e6f0" font-size="15" font-family="JetBrains Mono" font-weight="700">${Math.round(ex)}%</text></svg>
       <div class="dk-gs"><div><span>DD</span><b>${k.pnl_sol < 0 ? (k.pnl_sol / s.start_balance_sol * 100).toFixed(1) + "%" : "0%"}</b></div><div><span>OPEN</span><b>${k.open}</b></div>
       <div><span>SL</span><b>-${s.stop_loss_pct}%</b></div><div><span>TP</span><b>${s.tp1_x}x</b></div></div></div>`;
+    // live readiness 0.0-100
+    const rd = d.readiness, sc = rd.score, rc = sc < 40 ? "#ff8fb1" : sc < 70 ? "#ffcf8a" : "#7ee2a8";
+    $("#dk-ready").innerHTML = `<div class="dk-rm"><b style="color:${rc}">${sc.toFixed(1)}</b><span>/ 100</span><em style="color:${rc}">${esc(rd.verdict.toUpperCase())}</em></div>
+      <div class="dk-rbar"><i style="width:${sc}%;background:linear-gradient(90deg,#ff4fa3,${rc})"></i><s style="left:70%"></s></div>
+      ${rd.caps.map(c => `<div class="dk-rcap">⚠ ${esc(c)}</div>`).join("")}
+      <div class="dk-rparts">${Object.entries(rd.parts).map(([k, p]) => `<div title="${esc(p.note)}"><span>${k.replace("_", " ")}</span><div><i style="width:${p.score}%"></i></div><em>${esc(p.note)}</em></div>`).join("")}</div>
+      <div class="dk-rnote">Information only: the bot has no wallet and never trades real money.</div>`;
     // DryFlip queue
     $("#dk-drycard").classList.toggle("on", s.mode === "dryflip" || d.handoffs.length > 0);
     $("#dk-dn").textContent = d.handoffs.length;
@@ -298,14 +306,19 @@ book = Paper(start=${s.start_balance_sol} SOL, fee=${s.fee_pct}%, slip=${s.slipp
   // ---- view switch --------------------------------------------------------------------------
   function show(on) {
     D.on = on;
-    $("#desk").hidden = !on; document.querySelector("main.grid").hidden = on; $(".tfbar").hidden = on;
-    document.querySelectorAll("#viewsw button").forEach(b => b.setAttribute("aria-selected", (b.dataset.v === "desk") === on));
-    document.body.classList.toggle("desk-on", on);
-    try { localStorage.setItem("ts_view", on ? "desk" : "scope"); } catch { /* private mode */ }
     if (on) { mount(); poll(true); clearInterval(D.timer); D.timer = setInterval(poll, 2000); } else clearInterval(D.timer);
   }
   setInterval(() => { if (D.on) $("#dk-clock").textContent = new Date().toLocaleTimeString([], { hour12: false }); }, 1000);
-  document.querySelectorAll("#viewsw button").forEach(b => b.onclick = () => show(b.dataset.v === "desk"));
-  let start = "scope"; try { start = localStorage.getItem("ts_view") || "scope"; } catch { /* ignore */ }
-  if (start === "desk") show(true);
+  // one switch for the three views: SCOPE (dashboard) | SNIPER DESK | DEV LAB
+  window.VIEWS = { desk: show };
+  window.setView = (v) => {
+    const views = ["scope", "desk", "lab"]; if (!views.includes(v)) v = "scope";
+    document.querySelector("main.grid").hidden = v !== "scope"; $(".tfbar").hidden = v !== "scope";
+    $("#desk").hidden = v !== "desk"; $("#lab").hidden = v !== "lab";
+    document.querySelectorAll("#viewsw button").forEach(b => b.setAttribute("aria-selected", b.dataset.v === v));
+    document.body.classList.toggle("desk-on", v !== "scope");
+    try { localStorage.setItem("ts_view", v); } catch { /* private mode */ }
+    Object.entries(window.VIEWS).forEach(([k, fn]) => fn(k === v));
+  };
+  document.querySelectorAll("#viewsw button").forEach(b => b.onclick = () => window.setView(b.dataset.v));
 })();

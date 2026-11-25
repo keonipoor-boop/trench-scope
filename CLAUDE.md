@@ -223,6 +223,24 @@ insiders, bundles, fresh wallets, image reuse...) is listed as "not measured", n
 API: `/api/sniper`, `POST /api/sniper/settings|filters|reset`, `POST /api/sniper/handoff/<id>/done|skip`. UI: `web/desk.js`
 (own view, SCOPE | SNIPER DESK switch in the top bar; SIGNAL CORE vortex canvas, evidence matrix, risk gauge).
 
+### LIVE READINESS (both bots)
+`sniper.readiness()` and `devlab.readiness()` score 0.0-100 whether a paper record is good enough to risk money: weighted parts
+(sample, edge, profit factor / lift vs chance, drawdown, recent form, time) then hard caps (demo data 15, thin record 35,
+no better than chance / losing 30). Information only: neither bot can trade or launch live.
+
+### DEV LAB (paper deving) + X DRAFTS
+`core/devlab.py` (worker every 10 min, view ✦ DEV LAB in `web/devlab.js`): today's runners -> key words (`words()`) -> beta
+stats (later coins reusing a word, how many ran) -> 3 RELATED ideas each (keep one word, swap the other; Claude when keyed).
+`originality()` flags an exact ticker or a >=86% similar name as CLONE RISK (never suggest clones). 24h later `resolve()`
+asks "would it have been right?": a coin sharing the idea's key word, launched after it, reached `devlab.right_mcap` ($40k;
+partial `partial_mcap` $30k). Readiness compares the hit rate with the chance of ANY word-matched coin reaching the bar.
+`dev_metas()` studies tracked devs (DEV SYSTEM): words/themes they launch + their own X bio / pinned post (`dev_x`).
+`core/drafts.py`: instant tweet drafts for YOUR account (triggers: REAL runner crossing $100k, sniper buy/sell, META SHIFT,
+hourly thesis, an idea you click). Claude in your own voice (your pasted tweets) else templates; never impersonates anyone;
+says "I hold this" when the sniper holds the coin. Notified in every view (toast + browser notification) and optionally
+your Discord webhook. Never posted automatically: POST ON X opens x.com/intent/post with the text. Views switch via
+`window.setView('scope'|'desk'|'lab')` (`window.VIEWS` registry).
+
 ### STRATEGY (thesis panel)
 `core/playbook.py` -> `/api/playbook?tf=`: SPOT (hit rate + lift by narrative, socials, dev record, KOL buy, holder rewards),
 BUY (odds ladder: P(next level | reached level), speed to $100k, REAL vs FAKE), EXIT OR HOLD (share of peak runners keep by

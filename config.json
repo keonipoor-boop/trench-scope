@@ -113,5 +113,6 @@
     "twitter": {"enabled": true, "base_url": "https://api.x.com/2", "max_results": 50, "rate_per_min": 30},
     "socials": {"enabled": true, "refresh_h": 6, "coins_per_scan": 25, "rate_per_min": 40},
     "demo": {"enabled": false, "launches_per_10min": 10, "seed": 1337, "scan_every_min": 1}
-  }
+  },
+  "devlab": {"right_mcap": 40000, "partial_mcap": 30000}
 }
