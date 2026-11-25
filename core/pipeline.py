@@ -199,7 +199,13 @@ def scan(backfill_days: float | None = None) -> dict:
 
     def analyze(final: bool):
         with AgentRun("CATALYST", "classifying catalysts" if final else "quick classification") as run:
+            if final:
+                try:  # runners no keyword matched: Claude picks from the existing themes (when keyed)
+                    narratives.llm_themes(list(runners.values()))
+                except Exception as e:
+                    log("CATALYST", f"theme fallback: {e}", "warn")
             for c in runners.values():
+                c["themes"] = narratives.tag(c)  # re-tag every scan: socials / new keywords apply to old runners too
                 try:
                     c["signals"], c["is_real"] = evaluate_all(c, signals)
                     c["fake"] = explain_fake(c) if c["is_real"] is False else {}  # {} clears a stale verdict

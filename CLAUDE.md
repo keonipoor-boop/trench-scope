@@ -139,7 +139,9 @@ primary catalyst changes (`why_llm_cat`). Add a display label in
 
 ### A theme
 Edit `data/narratives.json`: `"Theme name": ["keyword", "multi word keyword", ...]`. Matching is
-case-insensitive with word boundaries on name + symbol + description. Coins are re-tagged on every
+case-insensitive with word boundaries (plurals match) on `narratives.coin_text()`: name (camelCase split), symbol,
+description, linked post, X bio / pinned post / community, start of the website. Every runner is re-tagged each scan;
+runners no keyword matches get Claude's pick from the EXISTING themes (`llm_themes`, stored as `themes_llm`). Coins are re-tagged on every
 cheap refresh. Words that spike in runners but belong to no theme surface as "emerging" (magenta chips)
 — that's your cue to add a new theme.
 
@@ -228,12 +230,23 @@ API: `/api/sniper`, `POST /api/sniper/settings|filters|reset`, `POST /api/sniper
 (sample, edge, profit factor / lift vs chance, drawdown, recent form, time) then hard caps (demo data 15, thin record 35,
 no better than chance / losing 30). Information only: neither bot can trade or launch live.
 
+### Terminal look (SNIPER DESK + DEV LAB)
+`web/field.js` `SignalField`: monochrome fiber field (sources = coins / narratives -> lens -> operator instrument cards) over a
+topographic STATE floor (marching-squares contours of real data; lights = open positions / verdicts). Every pulse is a real
+event (`pulse(source, sinkIdx, color, chip)`; desk: replayed from `/api/sniper` log at their real spacing; lab: real state
+changes), ambient flow + ticker speed follow the real events/min (`setRate`). Palette: near-black, greys, accents
+#f2e14c / #e85cf0 / #a78bfa / #7dd3fc.
+
 ### DEV LAB (paper deving) + X DRAFTS
 `core/devlab.py` (worker every 10 min, view ✦ DEV LAB in `web/devlab.js`): today's runners -> key words (`words()`) -> beta
 stats (later coins reusing a word, how many ran) -> 3 RELATED ideas each (keep one word, swap the other; Claude when keyed).
 `originality()` flags an exact ticker or a >=86% similar name as CLONE RISK (never suggest clones). 24h later `resolve()`
 asks "would it have been right?": a coin sharing the idea's key word, launched after it, reached `devlab.right_mcap` ($40k;
 partial `partial_mcap` $30k). Readiness compares the hit rate with the chance of ANY word-matched coin reaching the bar.
+Narratives come from runners AND New Pairs (`new_pair_narratives()`: words spiking in fresh launches, last 45 min vs the 6h
+before); both are interleaved each pass. Every idea carries a launch `kit` matching Axiom's Token Deploy form (name <=32,
+symbol <=13, description, post = the narrative's X post, image prompt, platform, dev-buy presets) with copy buttons;
+deploying stays a manual click in Axiom.
 `dev_metas()` studies tracked devs (DEV SYSTEM): words/themes they launch + their own X bio / pinned post (`dev_x`).
 `core/drafts.py`: instant tweet drafts for YOUR account (triggers: REAL runner crossing $100k, sniper buy/sell, META SHIFT,
 hourly thesis, an idea you click). Claude in your own voice (your pasted tweets) else templates; never impersonates anyone;

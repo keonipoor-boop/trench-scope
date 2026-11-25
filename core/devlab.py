@@ -41,6 +41,10 @@ def ensure_table():
     get_db().x("""CREATE TABLE IF NOT EXISTS dev_ideas (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, parent_mint TEXT,
                   parent_symbol TEXT, parent_name TEXT, name TEXT, ticker TEXT, keyword TEXT, pitch TEXT, by TEXT,
                   originality TEXT, verdict TEXT, outcome TEXT)""")
+    db = get_db()
+    if "kit" not in {r["name"] for r in db.q("PRAGMA table_info(dev_ideas)")}:
+        db.x("ALTER TABLE dev_ideas ADD COLUMN kit TEXT")
+        db.x("ALTER TABLE dev_ideas ADD COLUMN source TEXT")
 
 
 def words(name: str | None) -> list[str]:
@@ -121,7 +125,57 @@ def _llm_ideas(parent: dict, stats: dict) -> list[dict] | None:
     return clean[:3] or None
 
 
-def generate(max_parents: int = 4) -> int:
+def new_pair_narratives(window_min: int = 45, baseline_h: int = 6) -> list[dict]:
+    """Words spiking in FRESH launches (New Pairs): launches in the last `window_min` vs the `baseline_h` before.
+    A narrative forming before any coin has run. Lead = the strongest coin carrying the word."""
+    from collections import defaultdict
+    db, now = get_db(), time.time()
+    if get_config().demo:  # demo launches are spread over days: compare the last day with the week
+        window_min, baseline_h = 24 * 60, 6 * 24
+    w0, b0 = now - window_min * 60, now - window_min * 60 - baseline_h * 3600
+    rows = db.coins("created_ts >= ?", (int(b0),), order="created_ts DESC", limit=None)
+    cur, base, lead = defaultdict(int), defaultdict(int), {}
+    for c in rows:
+        ws = set(words(c.get("name")))
+        for w in ws:
+            if (c.get("created_ts") or 0) >= w0:
+                cur[w] += 1
+                if w not in lead or (c.get("usd_market_cap") or c.get("ath_mcap") or 0) > (lead[w].get("usd_market_cap") or lead[w].get("ath_mcap") or 0):
+                    lead[w] = c
+            else:
+                base[w] += 1
+    out = []
+    for w, n in cur.items():
+        if n < 3:
+            continue
+        rate_now = n / window_min
+        rate_base = base[w] / (baseline_h * 60) if base[w] else 0
+        spike = rate_now / rate_base if rate_base else float(n)
+        if spike >= 2:
+            c = lead[w]
+            out.append({"word": w, "count": n, "spike": round(spike, 1), "mint": c["mint"], "symbol": c.get("symbol"), "name": c.get("name"),
+                        "mcap": c.get("usd_market_cap") or c.get("ath_mcap"), "image": c.get("image")})
+    out.sort(key=lambda x: (-x["spike"] * min(x["count"], 10)))
+    return out[:12]
+
+
+def kit(i: dict, parent: dict) -> dict:
+    """Everything Axiom's Token Deploy form asks for, ready to copy. Nothing is deployed from here."""
+    from core.links import parse_twitter
+    post = None
+    for f in ("twitter", "twitter_dex"):  # a coin built on a post: the narrative's post is the natural POST link
+        if parse_twitter(parent.get(f))["kind"] == "status":
+            post = parent[f]
+            break
+    name = i["name"][:32]
+    sym = re.sub(r"[^A-Z0-9]", "", i["ticker"].upper())[:13]
+    desc = f"{name} (${sym}). The {i['keyword']} meta's newest face. Community first, no promises."
+    return {"name": name, "symbol": sym, "description": desc[:300], "website": "", "post": post,
+            "image_prompt": f"{name}: a bold, simple meme mascot, {i['keyword']} theme, flat colors, clean background, centered, no text",
+            "platform": "Pump", "dev_buy_presets": [1, 3, 5, 10], "dev_buy_sol": 1}
+
+
+def generate(max_parents: int = 12) -> int:
     """New ideas for today's runners that don't have ideas yet."""
     ensure_table()
     db, now = get_db(), time.time()
@@ -134,19 +188,36 @@ def generate(max_parents: int = 4) -> int:
     have = {r["parent_mint"] for r in db.q("SELECT DISTINCT parent_mint FROM dev_ideas")}
     recent = db.coins("created_ts >= ?", (int(now - 7 * 86400),), order="created_ts DESC", limit=None)
     made = 0
-    for p in [p for p in parents if p["mint"] not in have][:max_parents]:
+    todo = [(p, "runner") for p in parents if p["mint"] not in have]
+    # New Pairs: a spiking word's lead coin is a parent too (narratives forming before anything has run)
+    for nw in new_pair_narratives():
+        if nw["mint"] not in have and all(nw["mint"] != p["mint"] for p, _ in todo):
+            lead = db.get_coin(nw["mint"]) or {"mint": nw["mint"], "name": nw["name"], "symbol": nw["symbol"]}
+            lead = {**lead, "_word": nw["word"]}
+            todo.append((lead, "new pairs"))
+    runners_q = [t for t in todo if t[1] == "runner"]
+    pairs_q = [t for t in todo if t[1] == "new pairs"]
+    mixed = []  # alternate so New Pairs narratives are never crowded out by runners
+    while runners_q or pairs_q:
+        if pairs_q:
+            mixed.append(pairs_q.pop(0))
+        if runners_q:
+            mixed.append(runners_q.pop(0))
+    for p, source in mixed[:max_parents]:
         stats = beta_stats(p, recent, runner_ath)
+        if p.get("_word"):  # keep the spiking word as the narrative
+            p = {**p, "name": f"{p['_word']} {p.get('name') or ''}"}
         ideas = _llm_ideas(p, stats) or _template_ideas(p, random.Random(p["mint"]))
         # in demo, the "idea time" is the parent's launch so verdicts can be checked against the data that followed
         ts = int(p.get("created_ts") or now) if get_config().demo else int(now)
         for i in ideas:
             o = originality(i["name"], i["ticker"], recent)
-            db.x("INSERT INTO dev_ideas(ts,parent_mint,parent_symbol,parent_name,name,ticker,keyword,pitch,by,originality,verdict,outcome) "
-                 "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (ts, p["mint"], p.get("symbol"), p.get("name"), i["name"], i["ticker"], i["keyword"],
-                                                      i["pitch"], i["by"], json.dumps(o), None, None))
+            db.x("INSERT INTO dev_ideas(ts,parent_mint,parent_symbol,parent_name,name,ticker,keyword,pitch,by,originality,verdict,outcome,kit,source) "
+                 "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (ts, p["mint"], p.get("symbol"), p.get("name"), i["name"], i["ticker"], i["keyword"],
+                                                          i["pitch"], i["by"], json.dumps(o), None, None, json.dumps(kit(i, p)), source))
             made += 1
     if made:
-        log("CATALYST", f"DEV LAB: {made} narrative ideas from {min(len(parents), max_parents)} runners")
+        log("CATALYST", f"DEV LAB: {made} narrative ideas from {min(len(todo), max_parents)} narratives (runners + new pairs)")
     return made
 
 
@@ -283,16 +354,17 @@ def state() -> dict:
     window = 30 * 86400 if get_config().demo else 24 * 3600
     parents = [p for p in db.coins("is_runner=1 AND created_ts >= ?", (int(now - window),), order="ath_mcap DESC", limit=12)
                if p.get("is_real") is not False][:8]
-    ideas = [dict(r) for r in db.q("SELECT * FROM dev_ideas ORDER BY id DESC LIMIT 60")]
+    ideas = [dict(r) for r in db.q("SELECT * FROM dev_ideas ORDER BY id DESC LIMIT 120")]
     for i in ideas:
         i["originality"] = json.loads(i["originality"] or "{}")
+        i["kit"] = json.loads(i["kit"]) if i.get("kit") else None
         i["outcome"] = json.loads(i["outcome"]) if i["outcome"] else None
         i["resolves_in"] = max(0, int(i["ts"] + RESOLVE_AFTER - now)) if not i["verdict"] else 0
     return {"narratives": [{"mint": p["mint"], "symbol": p.get("symbol"), "name": p.get("name"), "image": p.get("image"),
                             "ath": p.get("ath_mcap"), "age_h": round((now - (p.get("created_ts") or now)) / 3600, 1),
                             "is_real": p.get("is_real"), "words": words(p.get("name")),
                             "beta": beta_stats(p, recent, runner_ath)} for p in parents],
-            "ideas": ideas, "readiness": readiness(), "base_rate": round(base_rate() * 100, 2), "dev_metas": dev_metas(),
+            "ideas": ideas, "readiness": readiness(), "base_rate": round(base_rate() * 100, 2), "dev_metas": dev_metas(), "new_pairs": new_pair_narratives(),
             "bars": {"right": bars()[0], "partial": bars()[1]}}
 
 

@@ -3,12 +3,15 @@
    Uses app.js helpers: $, esc, usd, ago, coinImg, openPop, adminPw. */
 (() => {
   const D = { on: false, data: null, after: 0, log: [], logTab: "all", codeTab: "risk_gate.py", timer: null };
-  const OP_COL = { WATCHER: "#ff6fb5", ANALYST: "#ff4fa3", RISK: "#ff3df2", EXECUTOR: "#ffa0d2", REPORTER: "#c9a7ff", HUMAN: "#ffe0f0" };
+  const OP_COL = { WATCHER: "#d9d9d9", ANALYST: "#f2e14c", RISK: "#e85cf0", EXECUTOR: "#ffffff", REPORTER: "#a78bfa", HUMAN: "#7dd3fc" };
+  // each operator is an instrument: "verb · object", like a decision readout
+  const LANE = { WATCHER: ["Scan", "launches"], ANALYST: ["Score", "confidence"], RISK: ["Choice", "gate"], EXECUTOR: ["Fill", "paper book"],
+    REPORTER: ["Write", "trace"], HUMAN: ["Handoff", "dryflip"] };
   const KIND = { fill: "FILL", pass: "PASS", hold: "HOLD", handoff: "HANDOFF", warn: "ALERT", active: "ACTIVE", info: "SYNC", paused: "PAUSED", idle: "IDLE" };
   const f2 = (v) => v == null ? "—" : Number(v).toFixed(2);
   const sol = (v) => v == null ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(3);
 
-  function spark(vals, w = 120, h = 26, col = "#ff4fa3") {
+  function spark(vals, w = 120, h = 26, col = "#f2e14c") {
     const v = (vals || []).filter(x => x != null);
     if (v.length < 2) return `<svg class="dk-spark" viewBox="0 0 ${w} ${h}"><path d="M0 ${h / 2} L${w} ${h / 2}" stroke="${col}55" fill="none"/></svg>`;
     const lo = Math.min(...v), hi = Math.max(...v), r = hi - lo || 1;
@@ -23,7 +26,7 @@
     $("#desk").innerHTML = `
       <header class="dk-top">
         <div class="dk-brand"><i></i><b>TRENCH</b> <span>Sniper Desk</span></div>
-        <div class="dk-title"><b>ORBITAL SIGNAL ENGINE</b><span id="dk-sub">paper trading · no wallet · no real orders</span></div>
+        <div class="dk-title"><b>SNIPER DESK / LANDSCAPE OF SIGNALS</b><span id="dk-sub">paper trading · no wallet · no real orders</span></div>
         <div class="dk-ctl">
           <div class="dk-seg" id="dk-mode" role="tablist" title="AUTO: the bot paper-fills its own trades. DRYFLIP: every trade becomes a handoff you mirror in the DryFlip extension.">
             <button data-mode="auto">AUTO PAPER</button><button data-mode="dryflip">DRYFLIP HANDOFF</button></div>
@@ -31,30 +34,30 @@
           <span class="dk-live"><i></i>LIVE</span><span class="dk-clock" id="dk-clock"></span>
         </div>
       </header>
-      <section class="dk-ops" id="dk-ops"></section>
+      <section class="dk-metrics" id="dk-metrics"></section>
+      <section class="dk-field" id="dk-field"><canvas id="dk-canvas"></canvas>
+        <div class="dk-fieldlbl"><b>LANDSCAPE OF SIGNALS</b><span>fresh launches → six operators → paper book · every pulse is a real decision, at its real speed</span></div>
+        <div class="dk-ops" id="dk-ops"></div>
+        <div class="dk-floorlbl"><b>STATE</b> · one shared book · hills = candidates by confidence · lights = open positions</div>
+      </section>
+      <div class="dk-ticker"><div class="dk-tick-track" id="dk-ticker"></div></div>
       <section class="dk-main">
         <div class="dk-col">
           <div class="dk-card"><div class="dk-h">WATCHLIST <i>fresh launches through your filters</i><em id="dk-wn"></em></div><div class="dk-fchips" id="dk-fchips"></div><div id="dk-watch"></div></div>
-          <div class="dk-card"><div class="dk-h">EQUITY <i>paper book, SOL</i><em id="dk-eq"></em></div><div id="dk-equity" class="dk-equity"></div></div>
           <div class="dk-card"><div class="dk-h">OPEN POSITIONS <em id="dk-on"></em></div><div id="dk-pos"></div></div>
-        </div>
-        <div class="dk-core">
-          <canvas id="dk-canvas"></canvas>
-          <div class="dk-call c1" id="dk-choice"></div><div class="dk-call c2" id="dk-risk"></div><div class="dk-call c3" id="dk-gate"></div>
-          <div class="dk-corelbl">SIGNAL CORE</div>
-          <div class="dk-kpis" id="dk-kpis"></div>
+          <div class="dk-card"><div class="dk-h">EQUITY <i>paper book, SOL</i><em id="dk-eq"></em></div><div id="dk-equity" class="dk-equity"></div></div>
         </div>
         <div class="dk-col">
+          <div class="dk-card dk-code"><div class="dk-tabs" id="dk-codetabs"></div><pre id="dk-code"></pre></div>
+          <div class="dk-card dk-logc"><div class="dk-h">LIVE LOG <span class="dk-tabs small" id="dk-logtabs"></span></div><div id="dk-log" class="dk-log"></div></div>
+        </div>
+        <div class="dk-col">
+          <div class="dk-card dk-ready"><div class="dk-h">LIVE READINESS <i>is the paper record good enough to risk money?</i></div><div id="dk-ready"></div></div>
+          <div class="dk-card dk-dry" id="dk-drycard"><div class="dk-h">DRYFLIP HANDOFF QUEUE <em id="dk-dn"></em></div><div id="dk-dry"></div></div>
           <div class="dk-card"><div class="dk-h">EVIDENCE MATRIX <i>top candidates × evidence</i></div><div id="dk-matrix"></div></div>
           <div class="dk-card"><div class="dk-h">HANDOFFS <i>operator activity</i></div><div id="dk-hand"></div></div>
-          <div class="dk-card dk-ready"><div class="dk-h">LIVE READINESS <i>is the paper record good enough to risk money?</i></div><div id="dk-ready"></div></div>
           <div class="dk-card"><div class="dk-h">RISK GAUGE <i>exposure of equity</i></div><div id="dk-gauge"></div></div>
-          <div class="dk-card dk-dry" id="dk-drycard"><div class="dk-h">DRYFLIP HANDOFF QUEUE <em id="dk-dn"></em></div><div id="dk-dry"></div></div>
         </div>
-      </section>
-      <section class="dk-bottom">
-        <div class="dk-card dk-code"><div class="dk-tabs" id="dk-codetabs"></div><pre id="dk-code"></pre></div>
-        <div class="dk-card dk-logc"><div class="dk-h">LIVE LOG <span class="dk-tabs small" id="dk-logtabs"></span></div><div id="dk-log" class="dk-log"></div></div>
       </section>
       <footer class="dk-foot" id="dk-foot"></footer>
       <dialog id="dk-rules"><form method="dialog" id="dk-rules-form"><h3>◆ SNIPER RULES</h3><div class="dk-rgrid" id="dk-rgrid"></div>
@@ -72,7 +75,7 @@
     $("#dk-logtabs").querySelectorAll("button").forEach(b => b.onclick = () => { D.logTab = b.dataset.t; renderLog(); });
     $("#dk-codetabs").innerHTML = ["sniper_desk.py", "evidence.py", "risk_gate.py"].map(t => `<button data-t="${t}">${t}</button>`).join("") + '<span class="dk-live sm"><i></i>LIVE</span>';
     $("#dk-codetabs").querySelectorAll("button").forEach(b => b.onclick = () => { D.codeTab = b.dataset.t; renderCode(); });
-    Core.init($("#dk-canvas"));
+    D.field = new SignalField($("#dk-canvas"), $("#dk-field"));
   }
 
   async function post(url, body) {
@@ -127,9 +130,12 @@
     $("#dk-run").textContent = s.enabled ? "❚❚ PAUSE" : "▶ RUN";
     $("#dk-sub").textContent = s.mode === "dryflip" ? "DryFlip handoff · the bot finds, you mirror in DryFlip" : "auto paper · the bot fills its own simulated trades";
     // operators
-    $("#dk-ops").innerHTML = Object.entries(d.operators).map(([n, o], i) => `<div class="dk-op ${o.status === "hold" || o.status === "handoff" ? "hot" : ""}" style="--oc:${OP_COL[n]}">
-      <div class="dk-op-h"><span>0${i + 1}</span><b>${n}</b><em class="k-${o.status}">${KIND[o.status] || o.status.toUpperCase()}</em></div>
-      ${spark(o.spark, 140, 26, OP_COL[n])}<div class="dk-op-v">${o.value == null ? "—" : typeof o.value === "number" && o.value <= 1.5 ? f2(o.value) : o.value}</div></div>`).join("");
+    const bars = (v) => { const xs = (v || []).slice(-24), mx = Math.max(1e-9, ...xs.map(Math.abs));
+      return `<div class="dk-bars">${xs.map(x => `<i style="height:${Math.max(8, Math.abs(x) / mx * 100)}%"></i>`).join("")}</div>`; };
+    $("#dk-ops").innerHTML = Object.entries(d.operators).map(([n, o], i) => `<div class="dk-op ${o.status === "hold" || o.status === "handoff" || o.status === "fill" || o.status === "pass" ? "hot" : ""}" style="--oc:${OP_COL[n]}">
+      <div class="dk-op-h"><span>${String(i + 1).padStart(2, "0")}</span><b>${n}</b><em class="k-${o.status}">${KIND[o.status] || o.status.toUpperCase()}</em></div>
+      <div class="dk-op-r">${bars(o.spark)}<b>${o.value == null ? "—" : typeof o.value === "number" && o.value <= 1.5 ? f2(o.value) : esc(String(o.value))}</b></div>
+      ${spark(o.spark, 140, 16, OP_COL[n])}<div class="dk-op-l">${LANE[n][0]} · <b>${LANE[n][1]}</b></div></div>`).join("");
     // watchlist
     $("#dk-wn").textContent = d.candidates.length;
     const fs = d.filters || { active: [], ignored: [] };
@@ -138,32 +144,27 @@
       : '<span class="ig">no Axiom preset · ⚙ RULES to paste one</span>';
     $("#dk-watch").innerHTML = d.candidates.map(c => `<div class="dk-row" data-mint="${esc(c.mint)}">${coinImg(c.image, c.symbol, false, c.mint)}
       <div class="dk-rn"><b>$${esc(c.symbol || "?")}</b><span>${usd(c.mcap)} · ${c.age_min}m</span></div>
-      <div class="dk-bar"><i style="width:${Math.round(c.conf * 100)}%;background:${c.conf >= s.gate ? "#ff4fa3" : "#6b3a5c"}"></i></div><em>${f2(c.conf)}</em></div>`).join("") || '<div class="dk-empty">watching for fresh launches…</div>';
+      <div class="dk-bar"><i style="width:${Math.round(c.conf * 100)}%;background:${c.conf >= s.gate ? "#f2e14c" : "#4a4a4a"}"></i></div><em>${f2(c.conf)}</em></div>`).join("") || '<div class="dk-empty">watching for fresh launches…</div>';
     // equity
     const eq = [s.start_balance_sol, ...d.pnl_series.map(p => s.start_balance_sol + p[1]), k.equity_sol];
     $("#dk-eq").innerHTML = `<b style="color:${k.pnl_sol >= 0 ? "#7ee2a8" : "#ff8fb1"}">${sol(k.pnl_sol)} SOL</b>`;
-    $("#dk-equity").innerHTML = spark(eq, 300, 70, "#ff4fa3") + `<div class="dk-eqv"><span>${f2(k.equity_sol)} SOL equity</span><span>${f2(k.balance_sol)} cash</span></div>`;
+    $("#dk-equity").innerHTML = spark(eq, 300, 70, "#f2e14c") + `<div class="dk-eqv"><span>${f2(k.equity_sol)} SOL equity</span><span>${f2(k.balance_sol)} cash</span></div>`;
     // positions
     $("#dk-on").textContent = `${d.positions.length}/${s.max_open}`;
     $("#dk-pos").innerHTML = d.positions.map(p => `<div class="dk-row" data-mint="${esc(p.mint)}">${coinImg(p.image, p.symbol, false, p.mint)}
       <div class="dk-rn"><b>$${esc(p.symbol || "?")}${p.mode === "dryflip" ? ' <i class="dk-tag">DRYFLIP</i>' : ""}</b><span>${p.size_sol} SOL · in ${usd(p.entry_mcap)} · ${ago(p.opened_ts)}</span></div>
       <em class="${(p.last_x || 1) >= 1 ? "up" : "dn"}">${f2(p.last_x)}x</em></div>`).join("") || '<div class="dk-empty">no open positions</div>';
-    // callouts
-    const fc = d.focus;
-    $("#dk-choice").innerHTML = fc ? `<b>CHOICE / ${fc.conf >= s.gate ? "LONG" : "WATCH"}</b><span>$${esc(fc.symbol || "?")} · conf ${f2(fc.conf)}</span>` : "<b>CHOICE / —</b><span>scanning</span>";
-    const lastRisk = [...D.log].reverse().find(e => e.op === "RISK");
-    $("#dk-risk").innerHTML = `<b>RISK ${lastRisk ? (KIND[lastRisk.kind] || "") : "IDLE"}</b><span>${lastRisk ? esc(lastRisk.msg.slice(0, 46)) : "—"}</span>`;
-    $("#dk-gate").innerHTML = `<b>GATE / ${fc && fc.conf >= s.gate ? "PASS" : "HOLD"}</b><span>${fc ? f2(fc.conf) : "—"} ${fc && fc.conf >= s.gate ? "≥" : "<"} ${f2(s.gate)} · ${s.mode === "dryflip" ? "human" : "auto"}</span>`;
-    // KPIs under the core
-    const conf = d.operators.ANALYST.spark, risk = d.operators.RISK.spark;
-    $("#dk-kpis").innerHTML = [["CONF", fc ? f2(fc.conf) : "—", conf], ["GATE", f2(s.gate), risk], ["EQUITY", f2(k.equity_sol), eq], ["EXPOSURE", k.exposure_pct + "%", null]]
-      .map(([l, v, sp]) => `<div class="dk-kpi"><span>${l}</span><b>${v}</b>${spark(sp || [], 90, 22)}</div>`).join("");
+    const fc = d.focus, rate = eventRate();
+    $("#dk-metrics").innerHTML = [["DECISIONS", (k.decisions ?? 0).toLocaleString()], ["EVENTS / MIN", rate.toFixed(1)], ["MEDIAN TICK", k.tick_ms != null ? k.tick_ms + " ms" : "—"],
+      ["FOCUS", fc ? "$" + esc(fc.symbol || "?") + " " + f2(fc.conf) : "—"], ["GATE", f2(s.gate)], ["GATE PASS", k.gate_pass_pct != null ? k.gate_pass_pct + "%" : "—"],
+      ["EQUITY", f2(k.equity_sol) + " SOL"], ["EXPOSURE", k.exposure_pct + "%"], ["COST / TRADE", k.trades ? (k.fees_sol / k.trades).toFixed(4) + " SOL" : "—"]]
+      .map(([l, v]) => `<div><span>${l}</span><b>${v}</b><i>${"▮".repeat(3)}</i></div>`).join("");
     // evidence matrix: rows = top candidates, cols = evidence
     const keys = d.evidence_keys;
     $("#dk-matrix").innerHTML = `<div class="dk-mx" style="--n:${keys.length}"><span></span>${keys.map(x => `<span class="mxk" title="${x}">${x.slice(0, 3)}</span>`).join("")}
       ${d.candidates.slice(0, 6).map(c => `<span class="mxr">$${esc((c.symbol || "?").slice(0, 6))}</span>` + keys.map(x => {
         const v = c.ev[x]; if (v == null) return `<i class="na" title="${x}: not measured yet"></i>`;
-        return `<i title="${x} ${f2(v)}" style="background:rgba(255,${Math.round(79 + 140 * (1 - v))},${Math.round(163 + 60 * v)},${(0.12 + v * 0.88).toFixed(2)})"></i>`; }).join("")).join("")}</div>`
+        return `<i title="${x} ${f2(v)}" style="background:rgba(${Math.round(60 + 182 * v)},${Math.round(60 + 165 * v)},${Math.round(60 + 16 * v)},${(0.35 + v * 0.65).toFixed(2)})"></i>`; }).join("")).join("")}</div>`
       || '<div class="dk-empty">no candidates</div>';
     // handoffs: operator activity in the log window
     const cnt = {}; D.log.slice(-200).forEach(e => cnt[e.op] = (cnt[e.op] || 0) + 1);
@@ -171,16 +172,16 @@
     $("#dk-hand").innerHTML = Object.keys(d.operators).map(n => `<div class="dk-hb"><span>${n}</span><div><i style="width:${(cnt[n] || 0) / mx * 100}%;background:${OP_COL[n]}"></i></div></div>`).join("");
     // risk gauge
     const ex = Math.min(100, k.exposure_pct || 0), R = 34, C = 2 * Math.PI * R;
-    $("#dk-gauge").innerHTML = `<div class="dk-gw"><svg viewBox="0 0 90 90"><circle cx="45" cy="45" r="${R}" stroke="#2a1426" stroke-width="9" fill="none"/>
+    $("#dk-gauge").innerHTML = `<div class="dk-gw"><svg viewBox="0 0 90 90"><circle cx="45" cy="45" r="${R}" stroke="#222" stroke-width="9" fill="none"/>
       <circle cx="45" cy="45" r="${R}" stroke="url(#dkg)" stroke-width="9" fill="none" stroke-linecap="round" stroke-dasharray="${(ex / 100 * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 45 45)"/>
-      <defs><linearGradient id="dkg"><stop offset="0" stop-color="#ff4fa3"/><stop offset="1" stop-color="#ffe0f0"/></linearGradient></defs>
+      <defs><linearGradient id="dkg"><stop offset="0" stop-color="#8a8a8a"/><stop offset="1" stop-color="#f2e14c"/></linearGradient></defs>
       <text x="45" y="50" text-anchor="middle" fill="#f3e6f0" font-size="15" font-family="JetBrains Mono" font-weight="700">${Math.round(ex)}%</text></svg>
       <div class="dk-gs"><div><span>DD</span><b>${k.pnl_sol < 0 ? (k.pnl_sol / s.start_balance_sol * 100).toFixed(1) + "%" : "0%"}</b></div><div><span>OPEN</span><b>${k.open}</b></div>
       <div><span>SL</span><b>-${s.stop_loss_pct}%</b></div><div><span>TP</span><b>${s.tp1_x}x</b></div></div></div>`;
     // live readiness 0.0-100
     const rd = d.readiness, sc = rd.score, rc = sc < 40 ? "#ff8fb1" : sc < 70 ? "#ffcf8a" : "#7ee2a8";
     $("#dk-ready").innerHTML = `<div class="dk-rm"><b style="color:${rc}">${sc.toFixed(1)}</b><span>/ 100</span><em style="color:${rc}">${esc(rd.verdict.toUpperCase())}</em></div>
-      <div class="dk-rbar"><i style="width:${sc}%;background:linear-gradient(90deg,#ff4fa3,${rc})"></i><s style="left:70%"></s></div>
+      <div class="dk-rbar"><i style="width:${sc}%;background:linear-gradient(90deg,#6b6b6b,${rc})"></i><s style="left:70%"></s></div>
       ${rd.caps.map(c => `<div class="dk-rcap">⚠ ${esc(c)}</div>`).join("")}
       <div class="dk-rparts">${Object.entries(rd.parts).map(([k, p]) => `<div title="${esc(p.note)}"><span>${k.replace("_", " ")}</span><div><i style="width:${p.score}%"></i></div><em>${esc(p.note)}</em></div>`).join("")}</div>
       <div class="dk-rnote">Information only: the bot has no wallet and never trades real money.</div>`;
@@ -205,7 +206,7 @@
       `<div><span>POSITION RISK</span><b>${lvl}</b><div class="dk-blocks">${Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.ceil(k.exposure_pct / 10) ? "on" : ""}"></i>`).join("")}</div></div>
        <div class="dk-disc">SIMULATED · PAPER TRADING · NOT TRADING ADVICE</div>`;
     renderLog(); renderCode();
-    Core.setEnergy(Math.min(1, 0.35 + d.candidates.length / 16 + (d.positions.length / Math.max(1, s.max_open)) * 0.4), d.focus ? d.focus.conf : 0.5, s.gate);
+    feedField(d);
   }
 
   function renderLog() {
@@ -252,61 +253,63 @@ book = Paper(start=${s.start_balance_sol} SOL, fee=${s.fee_pct}%, slip=${s.slipp
       const d = await j("/api/sniper?after=" + D.after);
       D.data = d;
       if (d.log.length) { D.log = D.log.concat(d.log).slice(-400); D.after = d.log[d.log.length - 1].id; }
+      const fresh = d.log;
       render();
+      schedule(fresh);
     } catch { /* backend busy: keep the last frame */ }
   }
 
-  // ---- SIGNAL CORE: a tilted particle vortex -----------------------------------------------
-  const Core = {
-    init(cv) {
-      this.cv = cv; this.ctx = cv.getContext("2d"); this.energy = 0.5; this.conf = 0.5; this.gate = 0.72;
-      this.P = Array.from({ length: 1400 }, () => this.spawn(true));
-      const loop = (t) => { if (D.on) this.frame(t); requestAnimationFrame(loop); };
-      requestAnimationFrame(loop);
-    },
-    setEnergy(e, conf, gate) { this.energy = e; this.conf = conf; this.gate = gate; },
-    spawn(init) {
-      const r = init ? Math.random() : 0.85 + Math.random() * 0.25;
-      return { a: Math.random() * Math.PI * 2, r, v: 0.004 + Math.random() * 0.01, s: Math.random() < 0.08 ? 2.2 : 1, h: Math.random() };
-    },
-    frame(t) {
-      const cv = this.cv, dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
-      if (!W || !H) return;
-      if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
-      const c = this.ctx; c.setTransform(dpr, 0, 0, dpr, 0, 0);
-      c.fillStyle = "rgba(10,4,12,0.28)"; c.fillRect(0, 0, W, H);
-      const cx = W / 2, cy = H * 0.46, RX = W * 0.46, RY = H * 0.3, e = this.energy;
-      c.globalCompositeOperation = "lighter";
-      for (const p of this.P) {
-        p.a += p.v * (1.4 - p.r) * (0.6 + e);
-        p.r -= 0.0009 * (0.5 + e);                       // spiral in toward the core
-        if (p.r < 0.06) Object.assign(p, this.spawn(false));
-        const x = cx + Math.cos(p.a) * RX * p.r, y = cy + Math.sin(p.a) * RY * p.r;
-        const funnel = p.r < 0.35 ? (0.35 - p.r) * H * 0.55 : 0;  // the vortex dips into a funnel at the centre
-        const hot = p.h > 0.85 ? 255 : 160 + p.h * 80;
-        c.fillStyle = `rgba(255,${Math.round(hot * 0.45)},${Math.round(150 + p.h * 90)},${0.35 + (1 - p.r) * 0.5})`;
-        c.fillRect(x, y + funnel, p.s, p.s);
-      }
-      // the inner ring and the core glow
-      const g = c.createRadialGradient(cx, cy + H * 0.12, 4, cx, cy + H * 0.12, RX * 0.4);
-      g.addColorStop(0, `rgba(255,220,240,${0.35 + e * 0.3})`); g.addColorStop(0.4, "rgba(255,79,163,0.18)"); g.addColorStop(1, "rgba(255,79,163,0)");
-      c.fillStyle = g; c.beginPath(); c.ellipse(cx, cy + H * 0.12, RX * 0.4, RY * 0.4, 0, 0, Math.PI * 2); c.fill();
-      c.strokeStyle = `rgba(255,140,200,${0.25 + 0.2 * Math.sin(t / 600)})`; c.lineWidth = 1.2;
-      c.beginPath(); c.ellipse(cx, cy + H * 0.12, RX * 0.34, RY * 0.22, 0, 0, Math.PI * 2); c.stroke();
-      c.globalCompositeOperation = "source-over";
-      // tethers from the core to the callouts
-      const pass = this.conf >= this.gate;
-      [[0.2, 0.33], [0.8, 0.16], [0.84, 0.74]].forEach(([fx, fy], i) => {
-        c.strokeStyle = i === 2 && pass ? "rgba(126,226,168,0.55)" : "rgba(255,190,225,0.35)"; c.lineWidth = 1;
-        c.beginPath(); c.moveTo(cx, cy + H * 0.1); c.lineTo(W * fx, H * fy); c.stroke();
-      });
-    },
+  // ---- SIGNAL FIELD feed: real decisions -> pulses, real candidates/positions -> sources + floor ----------
+  function eventRate() {
+    const now = Date.now() / 1000;
+    return D.log.filter(e => now - e.ts < 60).length;  // decisions in the last minute
+  }
+  function feedField(d) {
+    if (!D.field) return;
+    const seen = new Set(), src = [];
+    for (const p of d.positions) if (!seen.has(p.symbol)) { seen.add(p.symbol); src.push({ id: p.symbol, label: "$" + (p.symbol || "?"), sub: (p.last_x || 1).toFixed(2) + "x", lit: true }); }
+    for (const c of d.candidates) if (!seen.has(c.symbol) && src.length < 11) { seen.add(c.symbol); src.push({ id: c.symbol, label: "$" + (c.symbol || "?"), sub: usd(c.mcap) }); }
+    D.sym = seen;
+    D.field.layout(src, [...document.querySelectorAll("#dk-ops .dk-op")]);
+    const floor = d.candidates.map((c, i) => ({ u: 0.08 + 0.84 * (i / Math.max(1, d.candidates.length - 1)), v: 0.3 + (i % 3) * 0.12, h: c.conf }))
+      .concat(d.positions.map((p, i) => ({ u: 0.15 + 0.7 * (i / Math.max(1, d.positions.length - 1 || 1)), v: 0.72, h: 0.55 + Math.min(0.6, Math.abs((p.last_x || 1) - 1)),
+        color: (p.last_x || 1) >= 1 ? "#7ee2a8" : "#ff6b6b", label: `$${p.symbol} ${(p.last_x || 1).toFixed(2)}x` })));
+    const fsig = JSON.stringify(floor.map(f => [f.u.toFixed(2), f.h.toFixed(2), f.color]));
+    if (fsig !== D.fsig) { D.fsig = fsig; D.field.setFloor(floor); }
+    const rate = eventRate();
+    D.field.setRate(rate);
+    // ticker: the real decisions, scrolling at the bot's real pace
+    const dec = D.log.filter(e => ["ANALYST", "RISK", "EXECUTOR", "HUMAN"].includes(e.op)).slice(-28);
+    const txt = dec.map(e => { const m = e.msg.match(/\$([A-Za-z0-9]+)/), v = e.msg.match(/(\d\.\d\d)/);
+      return `<span><b>${v ? v[1] : "·"}</b> → ${e.op.toLowerCase()}.${(KIND[e.kind] || e.kind).toLowerCase()}(${m ? "$" + esc(m[1]) : ""})</span>`; }).join("");
+    if (txt !== D.tick) { D.tick = txt; $("#dk-ticker").innerHTML = txt + txt; }
+    $("#dk-ticker").style.animationDuration = Math.max(18, 140 / Math.sqrt(rate + 1)) + "s";
+  }
+  const PULSE = (e) => {
+    const m = e.msg.match(/\$([A-Za-z0-9]+)/), sym = m && D.sym && D.sym.has(m[1]) ? m[1] : null, v = (e.msg.match(/(\d\.\d\d)/) || [])[1];
+    if (e.op === "WATCHER") return [null, 0, "#d9d9d9", null];
+    if (!sym) return null;
+    if (e.op === "ANALYST") return [sym, 1, "#f2e14c", v ? "score " + v : null];
+    if (e.op === "RISK") return e.kind === "pass" ? [sym, 2, "#f2e14c", "PASS " + (v || "")] : e.kind === "warn" ? [sym, 3, "#ff6b6b", e.msg.split(" ")[0]] : [sym, 2, "#e85cf0", "HOLD " + (v || "")];
+    if (e.op === "EXECUTOR") return [sym, 3, e.msg.startsWith("SELL") ? "#7ee2a8" : "#ffffff", e.msg.split(" ").slice(0, 2).join(" ")];
+    if (e.op === "REPORTER") return [sym, 4, "#a78bfa", null];
+    if (e.op === "HUMAN") return [sym, 5, "#7dd3fc", "HANDOFF"];
+    return null;
   };
+  function schedule(events) {  // replay new events with their real spacing
+    if (!D.field || !events.length) return;
+    const t0 = events[0].ts;
+    for (const e of events) {
+      const p = PULSE(e); if (!p) continue;
+      setTimeout(() => D.on && D.field.pulse(...p), Math.min(2400, Math.max(0, (e.ts - t0) * 1000)));
+    }
+  }
 
   // ---- view switch --------------------------------------------------------------------------
   function show(on) {
     D.on = on;
-    if (on) { mount(); poll(true); clearInterval(D.timer); D.timer = setInterval(poll, 2000); } else clearInterval(D.timer);
+    if (D.field) D.field.active = on;
+    if (on) { mount(); D.field.active = true; poll(true); clearInterval(D.timer); D.timer = setInterval(poll, 2000); } else clearInterval(D.timer);
   }
   setInterval(() => { if (D.on) $("#dk-clock").textContent = new Date().toLocaleTimeString([], { hour12: false }); }, 1000);
   // one switch for the three views: SCOPE (dashboard) | SNIPER DESK | DEV LAB

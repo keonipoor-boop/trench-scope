@@ -26,7 +26,8 @@ def _patterns():
         _compiled = []
         for theme, kws in themes().items():
             alts = "|".join(re.escape(k.lower()) for k in sorted(kws, key=len, reverse=True))
-            _compiled.append((theme, re.compile(rf"(?<![a-z0-9])(?:{alts})(?![a-z0-9])")))
+            # plurals count too ("dogs", "games"); word boundaries keep "cat" out of "category"
+            _compiled.append((theme, re.compile(rf"(?<![a-z0-9])(?:{alts})(?:s|es)?(?![a-z0-9])")))
     return _compiled
 
 
@@ -35,13 +36,52 @@ def reload():
     _compiled = None
 
 
+_CAMEL = re.compile(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+
 def coin_text(c: dict) -> str:
-    return " ".join(str(c.get(k) or "") for k in ("name", "symbol", "description")).lower()
+    """Everything the coin says about itself: name (camelCase split: "AmericanOil" -> "American Oil"), symbol,
+    description, its linked post, X bio / pinned post / community, and the start of its website."""
+    name = str(c.get("name") or "")
+    parts = [name, _CAMEL.sub(" ", name), str(c.get("symbol") or ""), str(c.get("description") or ""),
+             str(c.get("tweet_text") or ""), str(c.get("x_bio") or ""), str(c.get("x_pinned_text") or ""),
+             str(c.get("x_community_desc") or ""), str(c.get("site_text") or "")[:400]]
+    return re.sub(r"[_\-$#]+", " ", " ".join(parts)).lower()
 
 
 def tag(coin: dict) -> list[str]:
     t = coin_text(coin)
-    return [theme for theme, pat in _patterns() if pat.search(t)]
+    found = [theme for theme, pat in _patterns() if pat.search(t)]
+    if not found and coin.get("themes_llm"):  # Claude's pick for a coin no keyword matched (kept on the coin)
+        found = [x for x in coin["themes_llm"] if x in themes()]
+    return found
+
+
+def llm_themes(coins: list[dict], limit: int = 20) -> int:
+    """Runners no keyword matched: Claude picks from the EXISTING themes (never invents one). Stored as themes_llm."""
+    from core import llm
+    if not llm.available():
+        return 0
+    todo = [c for c in coins if not tag(c) and not c.get("themes_llm_tried")][:limit]
+    if not todo:
+        return 0
+    names = list(themes().keys())
+    lines = "\n".join(f"{i}. {c.get('name')} (${c.get('symbol')}): {(c.get('description') or c.get('x_bio') or '')[:160]}"
+                       for i, c in enumerate(todo))
+    out = llm.ask(f"Themes: {names}\n\nCoins:\n{lines}\n\nFor each coin pick 1-2 themes from the list that fit (or none). "
+                  "Answer one line per coin: '<number>: theme; theme'.", system="You classify memecoins into given themes.", max_tokens=700)
+    n = 0
+    for c in todo:
+        c["themes_llm_tried"] = True
+    for line in (out or "").splitlines():
+        m = re.match(r"\s*(\d+)\s*[:.)-]\s*(.+)", line)
+        if not m or int(m.group(1)) >= len(todo):
+            continue
+        picks = [x.strip() for x in m.group(2).split(";") if x.strip() in names]
+        if picks:
+            todo[int(m.group(1))]["themes_llm"] = picks[:2]
+            n += 1
+    return n
 
 
 def tokens(c: dict, min_len=3) -> set[str]:

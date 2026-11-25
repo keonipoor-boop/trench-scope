@@ -481,7 +481,7 @@ def state(after: int = 0) -> dict:
                 "win_rate": round(len(wins) / len(closed) * 100, 1) if closed else None,
                 "gate_pass_pct": round(_board["gate_pass"] / _board["gate_checks"] * 100, 1) if _board["gate_checks"] else None,
                 "tick_ms": round(ms[len(ms) // 2]) if ms else None, "exposure_sol": round(exposure, 4),
-                "exposure_pct": round(exposure / equity * 100, 1) if equity else 0, "ticks": _board["ticks"]},
+                "exposure_pct": round(exposure / equity * 100, 1) if equity else 0, "ticks": _board["ticks"], "decisions": _board["gate_checks"]},
     }
 
 
