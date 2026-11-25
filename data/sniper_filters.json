@@ -1,0 +1,24 @@
+{
+  "filters": {
+    "protocols": {"Pump": true, "Mayhem": false, "Stonkfun": true, "Bonk": true, "Bonkers": false, "Bags": false, "Believe": false,
+      "Jupiter Studio": false, "Moonshot": false, "Pangea": false, "Send.fun": false, "Hostile": false, "Send.fun AMM": false,
+      "Sugar": false, "Rise Rich": false, "Rise Pro": false, "pve.win": false, "Vertigo": false, "Surge": false, "Soar": false,
+      "Printr": false, "Daos.fun": false, "Candle": false, "MetaDAO": false, "Moonit": false, "Wavebreak": false, "Heaven": false,
+      "Boop": false, "Float": true, "LaunchLab": true, "Dynamic BC": false, "Pump AMM": false, "Raydium V4": false,
+      "Raydium CPMM": false, "Raydium CLMM": false, "PancakeSwap CLMM": false, "Meteora AMM V1": false, "Meteora AMM V2": false,
+      "Meteora DLMM": false, "Meteora DLMM Pro": false, "Orca": false, "Pump Raydium": true, "SPL Token": true,
+      "Axiom Router": true, "Liquid": true, "Bordrless": false, "Liquid AMM": true},
+    "searchKeywords": [], "excludeKeywords": [], "twitterHandles": [], "excludeTwitterHandles": [], "devWallets": [],
+    "excludeDevWallets": [], "devSoldAll": false, "excludeVamped": false, "ogOnly": false, "originalSocials": false,
+    "dexPaid": false, "showPumpOffchain": true, "showHolderRewards": true, "showUsePaid": true, "showBoosted": true,
+    "riseProDegen": false,
+    "age": {"max": 4, "min": null, "maxUnit": "minutes", "minUnit": "minutes"},
+    "volume": {"max": null, "min": 100},
+    "twitterExists": false, "website": false, "telegram": false, "tiktok": false, "atLeastOneSocial": false,
+    "twitterProfileOnly": false, "twitterAbsent": false, "onlyTwitterLinked": false, "isStreaming": false,
+    "excludeMintable": false, "excludeFreezable": false, "excludeTransferHook": false, "lpBurnt": false,
+    "showQuoteTokens": {"sol": true, "usdc": true, "usd1": true, "usdt": true, "stock": false, "other": true}
+  },
+  "tab": "newPairs",
+  "_note": "Your Axiom New Pairs preset (pasted Nov 25). Unset ranges are omitted; they mean 'no limit'."
+}

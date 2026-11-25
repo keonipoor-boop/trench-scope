@@ -385,10 +385,67 @@ def kols_list():
 
 
 _HANDLE = _re.compile(r"^[A-Za-z0-9_]{1,15}$")
+@app.get("/api/playbook")
+def playbook_get(tf: str = "7D"):
+    """STRATEGY panel: the data-backed thesis (spot / buy / hold / cut)."""
+    from core import playbook
+    tf, w = _window(tf)
+    return {"tf": tf, **playbook.compute(max(1, w / 86400))}
+
+
 @app.get("/api/devs")
 def devs_list(limit: int = 24):
     from core import devs
     return devs.devs_list(limit)
+
+
+# ---- SNIPER DESK (paper trading) ---------------------------------------------------------
+@app.get("/api/sniper")
+def sniper_state(after: int = 0):
+    from core import sniper
+    return sniper.state(after)
+
+
+@app.post("/api/sniper/settings")
+async def sniper_settings(req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import sniper
+    return sniper.save_settings(await req.json())
+
+
+@app.post("/api/sniper/handoff/{pid}/{action}")
+def sniper_handoff(pid: int, action: str, req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    if action not in ("done", "skip"):
+        raise HTTPException(400, "done or skip")
+    from core import sniper
+    if not sniper.handoff_done(pid, action):
+        raise HTTPException(404, "no such handoff")
+    return {"ok": True}
+
+
+@app.post("/api/sniper/filters")
+async def sniper_filters(req: Request):
+    """Paste an Axiom New Pairs filter preset ({"filters": {...}}); {"filters": {}} clears it."""
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import axiom_filters
+    try:
+        f = axiom_filters.save(await req.json())
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e))
+    return axiom_filters.summary(f)
+
+
+@app.post("/api/sniper/reset")
+def sniper_reset(req: Request):
+    if not _can_edit(req):
+        raise HTTPException(403, "wrong or missing admin password")
+    from core import sniper
+    sniper.reset()
+    return {"ok": True}
 
 
 @app.post("/api/devs")

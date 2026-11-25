@@ -208,6 +208,27 @@ are pinned (★) even with no runners; all their wallets are pooled (`tracked_pr
 (`scan_due`); found mints are upserted with `creator` so the scan prices and checks them (kv `devlaunches:<wallet>`, `devscan:<wallet>`).
 A tracked dev with no wallet shows "Needs wallet" and an ADD DEV WALLET button.
 
+### SNIPER DESK (paper trading)
+`core/sniper.py` (worker started by the scheduler, one tick every `sniper.tick_s`): WATCHER (fresh launches) -> ANALYST
+(`evidence()`: FLOW, MOMENTUM, CATALYST, KOLS, DEV, HOLDERS, LIQUIDITY, SOCIAL, CHECKS; unmeasured = None, left out of
+`confidence()`, which is discounted below `MIN_MEASURED_WEIGHT`) -> RISK (gate, slots, cash, never a fake) -> EXECUTOR (paper
+fill: live DexScreener price + slippage + fee% + priority fee) -> REPORTER (live log) -> HUMAN (DryFlip handoffs). Exits: TP1
+partial, TP2, trailing stop after TP1, stop-loss, time stop. Mode "dryflip": every trade becomes a handoff card (open in
+Axiom / GMGN, size + TP/SL to type into the DryFlip overlay; DryFlip has no API, so the bot can't click it) and the bot
+tracks the same trade. Tables `sniper_positions`, `sniper_ticks`; kv `sniper_balance`, `sniper_settings`.
+Axiom New Pairs presets: `core/axiom_filters.py` (paste the JSON in ⚙ RULES; default `data/sniper_filters.json`): protocols
+(mint suffix / DexScreener dexId / Jupiter launchpad), age window (the WATCHER only looks that far back), volume, mcap,
+liquidity, holders, top-10, txns, buys, sells, KOLs, keywords, X handles, dev wallets, socials. Axiom-only data (snipers,
+insiders, bundles, fresh wallets, image reuse...) is listed as "not measured", never silently passed.
+API: `/api/sniper`, `POST /api/sniper/settings|filters|reset`, `POST /api/sniper/handoff/<id>/done|skip`. UI: `web/desk.js`
+(own view, SCOPE | SNIPER DESK switch in the top bar; SIGNAL CORE vortex canvas, evidence matrix, risk gauge).
+
+### STRATEGY (thesis panel)
+`core/playbook.py` -> `/api/playbook?tf=`: SPOT (hit rate + lift by narrative, socials, dev record, KOL buy, holder rewards),
+BUY (odds ladder: P(next level | reached level), speed to $100k, REAL vs FAKE), EXIT OR HOLD (share of peak runners keep by
+group / catalyst), TAKING LOSSES (after -30/50/70% from the high, how often a runner made a new high, from `snapshots`; your
+KOLs' stop-losses). `rules()` writes the thesis; Claude rewrites it when keyed. Cached `playbook.cache_min` (15).
+
 ### Timeframes
 The dashboard's TIMEFRAME bar (7D … 1H; 1H is the shortest) passes `?tf=` to `/api/state`. `api/server.py:TIMEFRAMES` lists them;
 runners count by when they crossed the bar (`ts_100k`, else launch), launches by launch time. Add a timeframe

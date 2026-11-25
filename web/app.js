@@ -40,7 +40,7 @@ function renderTfBar() {
   $("#tf").innerHTML = TFS.map(t => `<button role="tab" aria-selected="${t === TF}" data-tf="${t}">${t}</button>`).join("");
   document.querySelectorAll("#tf button").forEach(b => b.onclick = () => {
     TF = b.dataset.tf; try { localStorage.setItem("tf", TF); } catch { /* ignore */ }
-    seenTape = new Set(); renderTfBar(); scheduleRefresh(); refresh();
+    seenTape = new Set(); renderTfBar(); scheduleRefresh(); refresh(); if (typeof loadPlaybook === "function") loadPlaybook();
   });
   $("#tfnote").textContent = `coins that crossed $100k in the last ${TF} · refresh every ${tfSecs(TF) <= 300 ? "3s" : "15s"}`;
 }
@@ -843,6 +843,48 @@ function ldTabs() {
 document.querySelectorAll(".ld-per button").forEach(b => b.onclick = () => { LD_PER = b.dataset.per; ldSave(); ldTabs(); loadLeaders(); });
 document.querySelectorAll(".ld-view button").forEach(b => b.onclick = () => { LD_VIEW = b.dataset.view; ldSave(); ldTabs(); loadLeaders(); });
 $("#ld-real").onchange = (e) => { LD_REAL = e.target.checked; ldSave(); loadLeaders(); };
+
+// ---- STRATEGY: the data-backed thesis (core/playbook.py) -----------------------------------------
+let PB_TAB = "spot";
+document.querySelectorAll("#playbook .pb-tabs button").forEach(b => b.onclick = () => {
+  PB_TAB = b.dataset.pb; document.querySelectorAll("#playbook .pb-tabs button").forEach(x => x.setAttribute("aria-selected", x === b)); renderPlaybook();
+});
+let PB = null;
+async function loadPlaybook() { try { PB = await cj("/api/playbook?tf=" + encodeURIComponent(TF), 60000); renderPlaybook(); } catch { /* keep last */ } }
+function renderPlaybook() {
+  if (!PB) return;
+  const d = PB, money = (v) => usd(v);
+  $("#pb-by").textContent = `${d.by === "claude" ? "written by Claude" : "auto-written"} · ${d.tf} · updated ${ago(d.ts)} ago`;
+  const ex = (list) => (list || []).length ? `<span class="pb-ex">${list.map(c => `<button data-mint="${esc(c.mint)}" title="$${esc(c.symbol)} · peak ${money(c.ath)}">${coinImg(c.image, c.symbol, false, c.mint)}</button>`).join("")}</span>` : "";
+  const bar = (label, val, max, txt, col, sub, exl) => `<div class="pb-bar"><span>${esc(label)}${ex(exl)}</span><div><i style="width:${Math.max(2, Math.min(100, val / (max || 1) * 100))}%;background:${col}"></i></div><b>${txt}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  const rules = (d.rules[PB_TAB] || []).map((r, i) => `<li data-n="${String(i + 1).padStart(2, "0")}">${esc(r)}</li>`).join("") || '<li data-n="—">not enough data yet: the thesis fills in as the bot keeps scanning</li>';
+  let side = "";
+  if (PB_TAB === "spot") {
+    const s = d.spot, mx = Math.max(...s.best.map(r => r.lift || 0), 1);
+    side = `<div class="pb-k">HIT RATE BY SIGNAL · base rate ${s.base_rate}% of ${s.launches.toLocaleString()} launches</div><div class="pb-bars">
+      ${s.best.map(r => bar(r.feature, r.lift || 0, mx, (r.lift ?? "—") + "x", "#39ff88", `${r.hit_rate}% of ${r.n.toLocaleString()} launches ran`, r.examples)).join("")}
+      ${s.worst.map(r => bar(r.feature, r.lift || 0, mx, (r.lift ?? "—") + "x", "#ff4d6d", `${r.hit_rate}% of ${r.n.toLocaleString()} launches ran`, r.examples)).join("")}</div>`;
+  } else if (PB_TAB === "buy") {
+    const b = d.buy, mx = Math.max(...b.ladder.map(l => l.n), 1);
+    side = `<div class="pb-k">THE ODDS LADDER · once it reaches a level, how often it reaches the next</div><div class="pb-funnel">
+      ${b.ladder.map(l => `<div class="pb-step"><span>${money(l.from)}</span><div style="width:${Math.max(4, l.n / mx * 100)}%"></div><em>${l.pct}% → ${money(l.to)} · ${l.n.toLocaleString()}</em></div>`).join("")}</div>
+      ${b.speed.length ? `<div class="pb-k" style="margin-top:12px">SPEED TO $100K · share that went on to $500k</div><div class="pb-bars">${b.speed.map(s => bar(s.label, s.to_500k || 0, 100, (s.to_500k ?? "—") + "%", "#ff8a3d", `${s.n} runners · ${s.real ?? "—"}% REAL · median peak ${money(s.median_ath)}`)).join("")}</div>` : ""}`;
+  } else if (PB_TAB === "hold") {
+    const h = d.hold;
+    side = `<div class="pb-k">HOW MUCH OF THE PEAK RUNNERS KEEP · runners older than 6h${h.overall.median_keep != null ? ` · overall ${h.overall.median_keep}%` : ""}</div><div class="pb-bars">
+      ${h.groups.map(g => bar(g.label, g.median_keep || 0, 100, g.median_keep + "%", (g.median_keep || 0) >= 50 ? "#39ff88" : "#ffb347", `${g.faded_pct}% faded below 30% of peak · ${g.n} runners`, g.examples)).join("")}
+      ${h.catalysts.map(c => bar((CAT_NICE[c.catalyst] || c.catalyst) + " coins", c.median_keep || 0, 100, c.median_keep + "%", "#22e6ff", `${c.faded_pct}% faded · ${c.n} runners`)).join("")}</div>`;
+  } else {
+    const c = d.cut;
+    side = `<div class="pb-k">AFTER A DROP FROM THE HIGH · how often it made a new high (${c.coins_with_history} runners with price history)</div><div class="pb-bars">
+      ${c.recovery.map(r => bar(`down ${r.drawdown}% from the high`, r.new_high_pct || 0, 100, r.new_high_pct + "%", (r.new_high_pct || 0) < 25 ? "#ff4d6d" : "#ffb347", `${r.n} times it happened`)).join("") || '<div class="pb-note">not enough price history yet</div>'}</div>
+      ${c.kols.length ? `<div class="pb-k" style="margin-top:12px">HOW YOUR KOLS CUT LOSERS</div><div class="pb-bars">${c.kols.filter(k => k.stop_loss_x).map(k => bar(k.name, Math.abs((k.stop_loss_x - 1) * 100), 100, Math.round((k.stop_loss_x - 1) * 100) + "%", "#a26bff", `cuts after ~${dur(k.cut_after_s)} · ${k.win_rate ?? "—"}% win rate`)).join("")}</div>` : ""}`;
+  }
+  $("#pb-body").innerHTML = `<div class="pb-wrap"><div><div class="pb-k">THE THESIS</div><ol class="pb-rules">${rules}</ol>
+    <div class="pb-note">Rules are rebuilt from the bot's own data every 15 minutes (and follow the TIMEFRAME bar). Not financial advice.</div></div><div>${side}</div></div>`;
+  $("#pb-body").querySelectorAll("[data-mint]").forEach(b => { b.onclick = (e) => { e.stopPropagation(); openPop(b.dataset.mint, b); }; b.onmouseenter = () => prefetchCoin(b.dataset.mint); });
+}
+loadPlaybook(); setInterval(loadPlaybook, 60000);
 
 async function loadLeaders() {
   let d; try { d = await cjTrack(`/api/leaders?period=${LD_PER}&real_only=${LD_REAL ? 1 : 0}`, 10000); } catch { return; }

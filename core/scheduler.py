@@ -33,6 +33,8 @@ class Scheduler:
         last_scan = (db.kv_get("last_scan") or {}).get("ts", 0)
         from core import kol_research  # KOL LAB profiles refresh hourly on their own worker
         kol_research.start_worker()
+        from core import sniper
+        sniper.start_worker()  # SNIPER DESK: paper-trading sniper, its own loop
         if not cfg.demo and cfg.get_path("sources.pumpportal.enabled", True):
             from sources import pumpportal  # live launch/migration feed runs between scans
             pumpportal.start(cfg.get_path("sources.pumpportal.url", "wss://pumpportal.fun/api/data"))

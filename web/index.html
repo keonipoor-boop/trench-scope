@@ -12,6 +12,7 @@
 <!-- TICKER ---------------------------------------------------------------->
 <div class="ticker"><div class="ticker-track" id="ticker"></div></div>
 <div class="livewire">
+  <span class="viewsw" id="viewsw" role="tablist"><button data-v="scope" aria-selected="true">◆ SCOPE</button><button data-v="desk" aria-selected="false">⌖ SNIPER DESK</button></span>
   <span class="lw-badge">LIVE WIRE</span>
   <span class="lw-text" id="livewire">booting agents…</span>
   <span class="lw-chips" id="lwchips"></span>
@@ -137,6 +138,14 @@
     <div id="ld-body" class="clean"><div class="empty">loading…</div></div>
   </section>
 
+  <!-- STRATEGY: data-backed thesis --------------------------------------------------------->
+  <section class="panel p-orange" id="playbook">
+    <header>◆ STRATEGY <i>— the thesis for trading new pairs, written from what the bot has seen</i>
+      <span class="hdr-r"><span class="kl-tabs pb-tabs" role="tablist"><button data-pb="spot" aria-selected="true">⌖ SPOT NEW PAIRS</button><button data-pb="buy" aria-selected="false">▲ BUYING</button><button data-pb="hold" aria-selected="false">◷ EXIT OR HOLD</button><button data-pb="cut" aria-selected="false">✕ TAKING LOSSES</button></span>
+      <span class="pb-by" id="pb-by"></span></span></header>
+    <div id="pb-body" class="clean"><div class="empty">reading the trenches…</div></div>
+  </section>
+
   <!-- KOL LAB ------------------------------------------------------------------>
   <section class="panel p-mag" id="kollab">
     <header>◆ KOL LAB <i>— paste a KOL's wallets · the agent studies what they buy, their style and risk management</i>
@@ -161,6 +170,8 @@
     </div>
   </section>
 </main>
+<!-- SNIPER DESK (web/desk.js) -->
+<main class="desk" id="desk" hidden></main>
 <dialog id="koladd">
   <form method="dialog" id="koladd-form">
     <h3>◆ ADD / EDIT KOL</h3>
@@ -191,5 +202,6 @@
 <div class="pop clean" id="coinpop" role="dialog" aria-label="Coin" hidden></div>
 <script src="/static/synapse.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/desk.js"></script>
 </body>
 </html>
